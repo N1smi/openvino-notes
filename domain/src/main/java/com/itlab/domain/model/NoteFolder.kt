@@ -1,8 +1,8 @@
 package com.itlab.domain.model
 
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
 import java.util.UUID
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 data class NoteFolder(
     val id: String = UUID.randomUUID().toString(),

@@ -1,9 +1,9 @@
 package com.itlab.data.db
 
-import kotlinx.datetime.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import kotlin.time.Instant
 
 class DateTimeConvertersTest {
     private val converters = DateTimeConverters()

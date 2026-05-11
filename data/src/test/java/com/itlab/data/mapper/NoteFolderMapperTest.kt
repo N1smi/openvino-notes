@@ -2,9 +2,9 @@ package com.itlab.data.mapper
 
 import com.itlab.data.entity.FolderEntity
 import com.itlab.domain.model.NoteFolder
-import kotlinx.datetime.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import kotlin.time.Instant
 
 class NoteFolderMapperTest {
     val mapper = NoteFolderMapper()

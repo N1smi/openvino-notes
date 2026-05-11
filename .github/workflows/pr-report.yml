@@ -40,7 +40,7 @@ jobs:
       - name: Publish unit test report
         if: hashFiles('pr-artifacts/**/build/test-results/testDebugUnitTest/*.xml') != ''
         continue-on-error: true
-        uses: mikepenz/action-junit-report@v6.3.1
+        uses: mikepenz/action-junit-report@v6.4.0
         with:
           commit: ${{ github.event.workflow_run.head_sha }}
           pr_id: ${{ github.event.workflow_run.pull_requests[0].number }}
@@ -54,7 +54,7 @@ jobs:
       - name: Publish instrumentation report
         if: hashFiles('pr-artifacts/**/instrumentation-results.xml') != ''
         continue-on-error: true
-        uses: mikepenz/action-junit-report@v6.3.1
+        uses: mikepenz/action-junit-report@v6.4.0
         with:
           commit: ${{ github.event.workflow_run.head_sha }}
           pr_id: ${{ github.event.workflow_run.pull_requests[0].number }}
@@ -91,7 +91,7 @@ jobs:
             "${{ github.event.workflow_run.conclusion }}"
 
       - name: Publish sticky PR summary
-        uses: marocchino/sticky-pull-request-comment@v3.0.2
+        uses: marocchino/sticky-pull-request-comment@v3.0.4
         with:
           number: ${{ github.event.workflow_run.pull_requests[0].number }}
           header: ci-quality-overview

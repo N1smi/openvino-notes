@@ -39,10 +39,32 @@ sealed interface NotesUiEvent {
 
     data object CreateNote : NotesUiEvent
 
+    data class CreateDirectory(
+        val name: String,
+    ) : NotesUiEvent
+
+    data class DeleteDirectory(
+        val directoryId: String,
+    ) : NotesUiEvent
+
     data object BackToDirectoryNotes : NotesUiEvent
 
     data class SaveNote(
         val note: NoteItemUi,
+    ) : NotesUiEvent
+
+    data class DeleteNote(
+        val noteId: String,
+    ) : NotesUiEvent
+
+    data class RenameDirectory(
+        val directoryId: String,
+        val newName: String,
+    ) : NotesUiEvent
+
+    data class MoveNoteToDirectory(
+        val noteId: String,
+        val targetDirectoryId: String,
     ) : NotesUiEvent
 }
 

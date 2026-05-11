@@ -2,11 +2,11 @@ package com.itlab.domain
 
 import com.itlab.domain.model.NoteFolder
 import com.itlab.domain.repository.NoteFolderRepository
-import com.itlab.domain.usecase.CreateFolderUseCase
-import com.itlab.domain.usecase.DeleteFolderUseCase
-import com.itlab.domain.usecase.GetFolderUseCase
-import com.itlab.domain.usecase.ObserveFoldersUseCase
-import com.itlab.domain.usecase.UpdateFolderUseCase
+import com.itlab.domain.usecase.folderusecase.CreateFolderUseCase
+import com.itlab.domain.usecase.folderusecase.DeleteFolderUseCase
+import com.itlab.domain.usecase.folderusecase.GetFolderUseCase
+import com.itlab.domain.usecase.folderusecase.ObserveFoldersUseCase
+import com.itlab.domain.usecase.folderusecase.UpdateFolderUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
