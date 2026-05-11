@@ -30,15 +30,19 @@ class NoteTest {
     fun content_items_types() {
         val items =
             listOf(
-                ContentItem.Text("text"),
+                ContentItem.Text(
+                    text = "text",
+                ),
                 ContentItem.Image(
                     source = DataSource(localPath = "/cache/images/pic_001.jpg"),
-                    mimeType = "type",
+                    mimeType = "image/png",
                 ),
-                ContentItem.Link("url"),
+                ContentItem.Link(
+                    url = "https://url.com",
+                ),
                 ContentItem.File(
                     source = DataSource(remoteUrl = "https://url.com"),
-                    mimeType = "type",
+                    mimeType = "application/pdf",
                     name = "name",
                 ),
             )

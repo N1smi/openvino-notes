@@ -1,8 +1,8 @@
-package com.itlab.domain.usecase
+package com.itlab.domain.usecase.folderusecase
 
 import com.itlab.domain.model.NoteFolder
 import com.itlab.domain.repository.NoteFolderRepository
-import kotlinx.datetime.Clock
+import kotlin.time.Clock
 
 class UpdateFolderUseCase(
     private val repo: NoteFolderRepository,

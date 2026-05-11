@@ -1,7 +1,7 @@
-package com.itlab.domain.usecase
+package com.itlab.domain.usecase.noteusecase
 
 import com.itlab.domain.repository.NotesRepository
-import kotlinx.datetime.Clock
+import kotlin.time.Clock
 
 class MoveNoteToFolderUseCase(
     private val notesRepo: NotesRepository,

@@ -1,7 +1,7 @@
 package com.itlab.data.db
 
 import androidx.room.TypeConverter
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 
 class DateTimeConverters {
     @TypeConverter

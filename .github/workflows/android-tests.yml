@@ -100,7 +100,7 @@ jobs:
 
       - name: Upload android test artifacts
         if: always()
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: android-test-reports-${{ matrix.test_suffix }}
           if-no-files-found: ignore

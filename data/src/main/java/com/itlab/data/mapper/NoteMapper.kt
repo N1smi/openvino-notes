@@ -5,7 +5,6 @@ import com.itlab.data.entity.NoteEntity
 import com.itlab.domain.model.ContentItem
 import com.itlab.domain.model.Note
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 import java.util.UUID

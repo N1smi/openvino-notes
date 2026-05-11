@@ -1,9 +1,9 @@
-package com.itlab.domain.usecase
+package com.itlab.domain.usecase.folderusecase
 
 import com.itlab.domain.model.NoteFolder
 import com.itlab.domain.repository.NoteFolderRepository
-import kotlinx.datetime.Clock
 import java.util.UUID
+import kotlin.time.Clock
 
 class CreateFolderUseCase(
     private val repo: NoteFolderRepository,

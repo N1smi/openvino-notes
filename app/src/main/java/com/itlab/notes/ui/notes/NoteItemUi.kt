@@ -4,4 +4,5 @@ data class NoteItemUi(
     val id: String,
     val title: String,
     val content: String,
+    val folderId: String? = null,
 )

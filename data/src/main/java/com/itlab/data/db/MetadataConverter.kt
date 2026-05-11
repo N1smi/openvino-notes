@@ -2,7 +2,6 @@ package com.itlab.data.db
 
 import androidx.room.TypeConverter
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 

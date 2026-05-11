@@ -8,13 +8,13 @@ import com.itlab.data.dao.FolderDao
 import com.itlab.data.db.AppDatabase
 import com.itlab.data.entity.FolderEntity
 import kotlinx.coroutines.test.runTest
-import kotlinx.datetime.Clock
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.time.Clock
 
 @RunWith(AndroidJUnit4::class)
 class FolderDaoTest {
