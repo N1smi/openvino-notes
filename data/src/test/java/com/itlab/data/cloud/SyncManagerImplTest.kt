@@ -1,6 +1,9 @@
 package com.itlab.data.cloud
 
+import android.content.Context
+import com.itlab.data.dao.MediaDao
 import com.itlab.data.dao.NoteDao
+import com.itlab.data.entity.MediaEntity
 import com.itlab.data.entity.NoteEntity
 import com.itlab.data.mapper.NoteEntityJsonConverter
 import com.itlab.domain.cloud.CloudDataSource
@@ -10,6 +13,7 @@ import com.itlab.domain.cloud.SyncState
 import io.mockk.MockKAnnotations
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
@@ -24,6 +28,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import timber.log.Timber
+import java.io.File
 import java.io.IOException
 import kotlin.time.Clock
 
@@ -32,10 +37,16 @@ class SyncManagerImplTest {
     lateinit var noteDao: NoteDao
 
     @MockK
+    lateinit var mediaDao: MediaDao
+
+    @MockK
     lateinit var cloudDataSource: CloudDataSource
 
     @MockK
     lateinit var jsonConverter: NoteEntityJsonConverter
+
+    @MockK
+    lateinit var context: Context
 
     private lateinit var syncManager: SyncManagerImpl
     private val now = Clock.System.now()
@@ -58,7 +69,15 @@ class SyncManagerImplTest {
             },
         )
 
-        syncManager = SyncManagerImpl(noteDao, cloudDataSource, jsonConverter)
+        coEvery { mediaDao.getUnsyncedMedia() } returns emptyList()
+        every { mediaDao.getAllMedia() } returns flowOf(emptyList())
+
+        coEvery { cloudDataSource.listMediaMetadata(any()) } returns Result.Success(emptyList())
+
+        coEvery { cloudDataSource.uploadMedia(any(), any(), any()) } returns Result.Success(Unit)
+        coEvery { cloudDataSource.downloadMedia(any(), any()) } returns Result.Success(Unit)
+
+        syncManager = SyncManagerImpl(context, noteDao, mediaDao, cloudDataSource, jsonConverter)
     }
 
     @After
@@ -186,13 +205,111 @@ class SyncManagerImplTest {
 
             coVerifyOrder {
                 noteDao.getUnsyncedNotes()
+                mediaDao.getUnsyncedMedia()
+
                 cloudDataSource.uploadNote(expectedLocalPath, any())
                 noteDao.update(match { it.id == localNoteId && it.isSynced })
 
                 cloudDataSource.listNoteMetadata(userId)
+                noteDao.getAllNotes()
                 cloudDataSource.downloadNote(expectedRemotePath)
                 noteDao.insert(match { it.id == remoteNoteId })
+
+                cloudDataSource.listMediaMetadata(userId)
+                mediaDao.getAllMedia()
             }
+        }
+
+    @Test
+    fun `pushChanges should upload media and update remoteUrl when file exists`() =
+        runBlocking {
+            val userId = "user1"
+            val noteId = "note_1"
+            val mediaId = "media_1"
+            val expectedKey = "users/$userId/media/${noteId}_$mediaId"
+
+            val tempFile = java.io.File.createTempFile("test_upload", ".jpg")
+
+            val unsyncedMedia =
+                MediaEntity(
+                    id = mediaId,
+                    noteId = noteId,
+                    localPath = tempFile.absolutePath,
+                    mimeType = "image/jpeg",
+                    isSynced = false,
+                    type = "IMAGE",
+                    remoteUrl = null,
+                )
+
+            coEvery { noteDao.getUnsyncedNotes() } returns emptyList()
+            coEvery { mediaDao.getUnsyncedMedia() } returns listOf(unsyncedMedia)
+            coEvery { cloudDataSource.uploadMedia(any(), any(), any()) } returns Result.Success(Unit)
+            coEvery { mediaDao.update(any()) } just Runs
+
+            syncManager.pushChanges(userId)
+
+            coVerify {
+                cloudDataSource.uploadMedia(
+                    key = expectedKey,
+                    file = match { it.absolutePath == tempFile.absolutePath },
+                    mimeType = "image/jpeg",
+                )
+                mediaDao.update(
+                    match {
+                        it.id == mediaId &&
+                            it.isSynced &&
+                            it.remoteUrl == expectedKey
+                    },
+                )
+            }
+
+            tempFile.delete()
+            Unit
+        }
+
+    @Test
+    fun `pullMedia should download new media and insert into dao`() =
+        runBlocking {
+            val userId = "user1"
+            val noteId = "note1"
+            val mediaId = "media1"
+            val compositeId = "${noteId}_$mediaId"
+            val cloudKey = "users/$userId/media/$compositeId"
+
+            coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(emptyList())
+            every { noteDao.getAllNotes() } returns flowOf(emptyList())
+
+            val cloudMeta =
+                com.itlab.domain.cloud.CloudMediaMetadata(
+                    key = cloudKey,
+                    mediaId = compositeId,
+                    mimeType = "image/png",
+                )
+            coEvery { cloudDataSource.listMediaMetadata(userId) } returns Result.Success(listOf(cloudMeta))
+            every { mediaDao.getAllMedia() } returns flowOf(emptyList())
+            coEvery { cloudDataSource.downloadMedia(eq(cloudKey), any()) } returns Result.Success(Unit)
+
+            val mediaSlot = io.mockk.slot<com.itlab.data.entity.MediaEntity>()
+            coEvery { mediaDao.insert(capture(mediaSlot)) } just Runs
+
+            val tempDir =
+                java.nio.file.Files
+                    .createTempDirectory("test_media")
+                    .toFile()
+            every { context.filesDir } returns tempDir
+
+            syncManager.pullUpdates(userId)
+
+            assertTrue("Insert should be called", mediaSlot.isCaptured)
+            val captured = mediaSlot.captured
+
+            assertEquals("Media ID mismatch", mediaId, captured.id)
+            assertEquals("Note ID mismatch", noteId, captured.noteId)
+            assertTrue("Should be marked as synced", captured.isSynced)
+            assertEquals("IMAGE", captured.type)
+
+            tempDir.deleteRecursively()
+            Unit
         }
 
     private fun createTestNote(id: String) =

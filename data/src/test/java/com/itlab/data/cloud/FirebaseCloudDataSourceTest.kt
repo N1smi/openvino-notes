@@ -86,6 +86,37 @@ class FirebaseCloudDataSourceTest {
         }
 
     @Test
+    fun `listMediaMetadata success`() =
+        runBlocking {
+            val userId = "user1"
+            val listResult = mockk<ListResult>()
+            val itemRef = mockk<StorageReference>()
+            val metadata = mockk<StorageMetadata>()
+
+            val taskList = mockk<Task<ListResult>>()
+            val taskMeta = mockk<Task<StorageMetadata>>()
+
+            every { rootRef.child("users/$userId/media") } returns childRef
+            every { childRef.listAll() } returns taskList
+            coEvery { taskList.await() } returns listResult
+
+            every { listResult.items } returns listOf(itemRef)
+            every { itemRef.path } returns "users/user1/media/note1_id1"
+            every { itemRef.name } returns "note1_id1"
+            every { itemRef.metadata } returns taskMeta
+
+            coEvery { taskMeta.await() } returns metadata
+            every { metadata.contentType } returns "image/png"
+
+            val result = dataSource.listMediaMetadata(userId)
+
+            assertTrue(result is Result.Success)
+            val data = (result as Result.Success).data
+            assertEquals("note1_id1", data[0].mediaId)
+            assertEquals("image/png", data[0].mimeType)
+        }
+
+    @Test
     fun `downloadNote success`() =
         runBlocking {
             val key = "note_key"
@@ -133,11 +164,13 @@ class FirebaseCloudDataSourceTest {
         runBlocking {
             val file = File.createTempFile("test", "tmp")
             val task = mockk<UploadTask>()
+            val mimeType = "image/jpeg"
+
             every { rootRef.child(any()) } returns childRef
-            every { childRef.putStream(any()) } returns task
+            every { childRef.putStream(any(), any()) } returns task
             coEvery { task.await() } returns mockk()
 
-            val result = dataSource.uploadMedia("key", file)
+            val result = dataSource.uploadMedia("key", file, mimeType)
 
             assertTrue(result is Result.Success)
             file.delete()

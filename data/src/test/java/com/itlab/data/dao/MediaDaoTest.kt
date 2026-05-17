@@ -145,4 +145,117 @@ class MediaDaoTest {
             val result = mediaDao.getMediaForNote("note1")
             assertTrue(result.isEmpty())
         }
+
+    @Test
+    fun `getUnsyncedMedia should return only media with isSynced false`() =
+        runTest {
+            insertParentNote("note1")
+
+            val syncedMedia = createMedia("m1", "note1").copy(isSynced = true)
+            val unsyncedMedia = createMedia("m2", "note1").copy(isSynced = false)
+
+            mediaDao.insert(syncedMedia)
+            mediaDao.insert(unsyncedMedia)
+
+            val result = mediaDao.getUnsyncedMedia()
+
+            assertEquals(1, result.size)
+            assertEquals("m2", result[0].id)
+            assertEquals(false, result[0].isSynced)
+        }
+
+    @Test
+    fun `deleteByNoteId should remove all media associated with note`() =
+        runTest {
+            insertParentNote("note1")
+            insertParentNote("note2")
+
+            mediaDao.insertAll(
+                listOf(
+                    createMedia("m1", "note1"),
+                    createMedia("m2", "note1"),
+                    createMedia("m3", "note2"),
+                ),
+            )
+
+            mediaDao.deleteByNoteId("note1")
+
+            val mediaNote1 = mediaDao.getMediaForNote("note1")
+            val mediaNote2 = mediaDao.getMediaForNote("note2")
+
+            assertTrue(mediaNote1.isEmpty())
+            assertEquals(1, mediaNote2.size)
+        }
+
+    @Test
+    fun `update should change sync status and remote url`() =
+        runTest {
+            insertParentNote("note1")
+            val media = createMedia("m1", "note1").copy(isSynced = false, remoteUrl = null)
+            mediaDao.insert(media)
+
+            val updatedMedia = media.copy(isSynced = true, remoteUrl = "cloud://path/to/file")
+            mediaDao.update(updatedMedia)
+
+            val result = mediaDao.getMediaForNote("note1")[0]
+
+            assertTrue(result.isSynced)
+            assertEquals("cloud://path/to/file", result.remoteUrl)
+        }
+
+    @Test
+    fun `getAllMedia should return all media from different notes`() =
+        runTest {
+            insertParentNote("note1")
+            insertParentNote("note2")
+
+            val media1 = createMedia("m1", "note1")
+            val media2 = createMedia("m2", "note2")
+
+            mediaDao.insert(media1)
+            mediaDao.insert(media2)
+
+            val result = mediaDao.getAllMedia().first()
+
+            assertEquals(2, result.size)
+            assertTrue(result.any { it.id == "m1" })
+            assertTrue(result.any { it.id == "m2" })
+        }
+
+    @Test
+    fun `deleteAll should clear media table`() =
+        runTest {
+            insertParentNote("note1")
+            insertParentNote("note2")
+
+            mediaDao.insertAll(
+                listOf(
+                    createMedia("m1", "note1"),
+                    createMedia("m2", "note2"),
+                ),
+            )
+
+            val beforeDelete = mediaDao.getAllMedia().first()
+            assertEquals(2, beforeDelete.size)
+
+            mediaDao.deleteAll()
+
+            val afterDelete = mediaDao.getAllMedia().first()
+            assertTrue("Table should be empty after deleteAll()", afterDelete.isEmpty())
+        }
+
+    @Test
+    fun `getAllMedia flow should emit new list when data changes`() =
+        runTest {
+            insertParentNote("note1")
+
+            val result1 = mediaDao.getAllMedia().first()
+            assertTrue(result1.isEmpty())
+
+            mediaDao.insert(createMedia("m1", "note1"))
+
+            val result2 = mediaDao.getAllMedia().first()
+            assertEquals(1, result2.size)
+            assertEquals("m1", result2[0].id)
+        }
 }
