@@ -2,6 +2,7 @@ package com.itlab.data.cloud
 
 import com.google.firebase.storage.FirebaseStorage
 import com.itlab.domain.cloud.CloudDataSource
+import com.itlab.domain.cloud.CloudMediaMetadata
 import com.itlab.domain.cloud.CloudNoteMetadata
 import com.itlab.domain.cloud.Result
 import kotlinx.coroutines.CancellationException
@@ -30,6 +31,21 @@ class FirebaseCloudDataSource(
             metadataList
         }
 
+    override suspend fun listMediaMetadata(userId: String): Result<List<CloudMediaMetadata>> =
+        safeCall {
+            val mediaRef = rootRef.child("users/$userId/media")
+            val result = mediaRef.listAll().await()
+
+            result.items.map { itemRef ->
+                val metadata = itemRef.metadata.await()
+                CloudMediaMetadata(
+                    key = itemRef.path,
+                    mediaId = itemRef.name,
+                    mimeType = metadata.contentType ?: "application/octet-stream",
+                )
+            }
+        }
+
     override suspend fun downloadNote(key: String): Result<String> =
         safeCall {
             val fileRef = rootRef.child(key)
@@ -56,11 +72,16 @@ class FirebaseCloudDataSource(
     override suspend fun uploadMedia(
         key: String,
         file: File,
+        mimeType: String,
     ): Result<Unit> =
         safeCall {
             val fileRef = rootRef.child(key)
+            val metadata =
+                com.google.firebase.storage.storageMetadata {
+                    contentType = mimeType
+                }
             file.inputStream().use { stream ->
-                fileRef.putStream(stream).await()
+                fileRef.putStream(stream, metadata).await()
             }
             Unit
         }

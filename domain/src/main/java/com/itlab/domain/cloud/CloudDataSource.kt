@@ -16,6 +16,8 @@ sealed interface Result<out T> {
 interface CloudDataSource {
     suspend fun listNoteMetadata(userId: String): Result<List<CloudNoteMetadata>>
 
+    suspend fun listMediaMetadata(userId: String): Result<List<CloudMediaMetadata>>
+
     suspend fun downloadNote(key: String): Result<String>
 
     suspend fun uploadNote(
@@ -28,6 +30,7 @@ interface CloudDataSource {
     suspend fun uploadMedia(
         key: String,
         file: File,
+        mimeType: String,
     ): Result<Unit>
 
     suspend fun downloadMedia(
@@ -41,4 +44,10 @@ interface CloudDataSource {
 data class CloudNoteMetadata(
     val key: String,
     val updatedAt: Instant,
+)
+
+data class CloudMediaMetadata(
+    val key: String,
+    val mediaId: String,
+    val mimeType: String,
 )
