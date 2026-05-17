@@ -114,9 +114,9 @@ class SyncWorkerTest {
                         object : androidx.work.WorkerFactory() {
                             override fun createWorker(
                                 appContext: Context,
-                                className: String,
-                                params: androidx.work.WorkerParameters,
-                            ) = SyncWorker(appContext, params, syncManager, authManager)
+                                workerClassName: String,
+                                workerParameters: androidx.work.WorkerParameters,
+                            ) = SyncWorker(appContext, workerParameters, syncManager, authManager)
                         },
                     ).build()
 
@@ -138,9 +138,9 @@ class SyncWorkerTest {
                         object : androidx.work.WorkerFactory() {
                             override fun createWorker(
                                 appContext: Context,
-                                className: String,
-                                params: androidx.work.WorkerParameters,
-                            ) = SyncWorker(appContext, params, syncManager, authManager)
+                                workerClassName: String,
+                                workerParameters: androidx.work.WorkerParameters,
+                            ) = SyncWorker(appContext, workerParameters, syncManager, authManager)
                         },
                     ).build()
 

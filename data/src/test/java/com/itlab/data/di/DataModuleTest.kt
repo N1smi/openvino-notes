@@ -1,37 +1,56 @@
 package com.itlab.data.di
 
 import android.content.Context
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import com.google.firebase.auth.FirebaseAuth
-import io.mockk.every
+import com.google.firebase.storage.FirebaseStorage
 import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
-import org.junit.After
 import org.junit.Test
-import org.junit.runner.RunWith
 import org.koin.android.ext.koin.androidContext
+import org.koin.core.parameter.parametersOf
+import org.koin.core.qualifier.named
 import org.koin.dsl.koinApplication
+import org.koin.dsl.module
 import org.koin.test.KoinTest
-import org.koin.test.check.checkModules
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], manifest = Config.NONE)
 class DataModuleTest : KoinTest {
-    @After
-    fun tearDown() {
-        unmockkAll()
-    }
-
     @Test
     fun `verify dataModule dependencies`() {
-        mockkStatic(FirebaseAuth::class)
-        every { FirebaseAuth.getInstance() } returns mockk(relaxed = true)
+        val externalMocksModule =
+            module {
+                single<FirebaseAuth> { mockk(relaxed = true) }
+                single<FirebaseStorage> { mockk(relaxed = true) }
+                single<WorkManager> { mockk(relaxed = true) }
+            }
 
-        koinApplication {
-            androidContext(mockk<Context>(relaxed = true))
-            modules(dataModule)
-        }.checkModules()
+        val app =
+            koinApplication {
+                allowOverride(true)
+                androidContext(mockk<Context>(relaxed = true))
+                modules(listOf(dataModule, externalMocksModule))
+            }
+
+        val koin = app.koin
+
+        koin.get<com.itlab.domain.repository.NotesRepository>()
+        koin.get<com.itlab.domain.repository.NoteFolderRepository>()
+        koin.get<com.itlab.domain.repository.AuthRepository>()
+        koin.get<com.itlab.domain.cloud.SyncScheduler>()
+        koin.get<com.itlab.domain.cloud.SyncManager>()
+
+        val workerClassName = com.itlab.data.cloud.SyncWorker::class.java.name
+
+        val workerFactory =
+            koin.getOrNull<androidx.work.ListenableWorker>(
+                qualifier = named(workerClassName),
+            ) {
+                parametersOf(
+                    mockk<Context>(relaxed = true),
+                    mockk<WorkerParameters>(relaxed = true),
+                )
+            }
+
+        assert(workerFactory != null)
     }
 }

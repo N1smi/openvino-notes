@@ -17,10 +17,12 @@ class SyncWorker(
     @Suppress("TooGenericExceptionCaught")
     override suspend fun doWork(): Result {
         val userId =
-            authManager.getCurrentUserId() ?: run {
-                Timber.e("Sync failed: User is not authorized")
-                return Result.failure()
-            }
+            inputData.getString("USER_ID")
+                ?: authManager.getCurrentUserId()
+                ?: run {
+                    Timber.e("Sync failed: User is not authorized")
+                    return Result.failure()
+                }
         return try {
             Timber.d("Starting sync for user: $userId")
             syncManager.sync(userId)
