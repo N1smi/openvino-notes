@@ -1,6 +1,7 @@
 package com.itlab.data.di
 
 import android.content.Context
+import androidx.work.ListenableWorker
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.google.firebase.auth.FirebaseAuth
@@ -42,7 +43,7 @@ class DataModuleTest : KoinTest {
         val workerClassName = com.itlab.data.cloud.SyncWorker::class.java.name
 
         val workerFactory =
-            koin.getOrNull<androidx.work.ListenableWorker>(
+            koin.getOrNull<ListenableWorker>(
                 qualifier = named(workerClassName),
             ) {
                 parametersOf(
