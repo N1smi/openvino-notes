@@ -134,6 +134,12 @@ def build_openvino_java_api(config: BuildConfig) -> None:
 
 
 def validate_acl_archive(config: BuildConfig) -> None:
+    if config.android_abi != "arm64-v8a":
+        message = f"ACL archive check skipped for non-ARM ABI: {config.android_abi}"
+        print(message)
+        (config.artifacts_dir / "acl-archive-check.log").write_text(message + "\n", encoding="utf-8")
+        return
+
     acl_archive = (
         config.build_dir
         / "openvino-android"
@@ -160,7 +166,7 @@ def validate_acl_archive(config: BuildConfig) -> None:
 
 def build_java_api_jar(config: BuildConfig) -> None:
     java_out = config.artifacts_dir / "java-api"
-    jar_path = java_out / f"openvino-java-api-{config.openvino_ref}-android.jar"
+    jar_path = java_out / f"openvino-java-api-{config.package_ref}-android.jar"
     if java_out.exists():
         shutil.rmtree(java_out)
     (java_out / "classes").mkdir(parents=True)

@@ -68,6 +68,7 @@ jobs:
       - build-quality
     if: needs.preflight.outputs.run_release == 'true'
     uses: ./.github/workflows/release.yml
+    secrets: inherit
     permissions:
       contents: read
 
