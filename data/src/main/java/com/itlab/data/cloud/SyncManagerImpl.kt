@@ -125,10 +125,11 @@ class SyncManagerImpl(
         val localNotes = noteDao.getAllNotes().first()
         val localIds = localNotes.map { it.id }.toSet()
 
-        val toDownload = remoteMetadata.filter { remoteMeta ->
-            val remoteNoteId = remoteMeta.key.substringAfterLast('/')
-            remoteNoteId !in localIds
-        }
+        val toDownload =
+            remoteMetadata.filter { remoteMeta ->
+                val remoteNoteId = remoteMeta.key.substringAfterLast('/')
+                remoteNoteId !in localIds
+            }
 
         for (meta in toDownload) {
             val downloadResult = cloudDataSource.downloadNote(meta.key)

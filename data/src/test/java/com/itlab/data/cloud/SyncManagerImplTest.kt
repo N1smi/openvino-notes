@@ -269,28 +269,31 @@ class SyncManagerImplTest {
         }
 
     @Test
-    fun `pullNotes should correctly extract noteId from full remote path and skip already existing notes`() = runBlocking {
-        val userId = "user_123"
-        val existingNoteId = "note_abc"
+    fun `pullNotes should correctly extract noteId from full remote path and skip already existing notes`() =
+        runBlocking {
+            val userId = "user_123"
+            val existingNoteId = "note_abc"
 
-        val localNote = mockk<NoteEntity> { every { id } returns existingNoteId }
-        every { noteDao.getAllNotes() } returns flowOf(listOf(localNote))
+            val localNote = mockk<NoteEntity> { every { id } returns existingNoteId }
+            every { noteDao.getAllNotes() } returns flowOf(listOf(localNote))
 
-        val remoteMetadata = listOf(
-            CloudNoteMetadata(
-                key = "users/$userId/notes/$existingNoteId",
-                updatedAt = Instant.fromEpochMilliseconds(1716037200000L)
-            )
-        )
-        coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(remoteMetadata)
+            val remoteMetadata =
+                listOf(
+                    CloudNoteMetadata(
+                        key = "users/$userId/notes/$existingNoteId",
+                        updatedAt = Instant.fromEpochMilliseconds(1716037200000L),
+                    ),
+                )
+            coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(remoteMetadata)
 
-        syncManager.pullUpdates(userId)
+            syncManager.pullUpdates(userId)
 
-        coVerify(exactly = 0) {
-            cloudDataSource.downloadNote(any())
+            coVerify(exactly = 0) {
+                cloudDataSource.downloadNote(any())
+            }
+            Unit
         }
-        Unit
-    }
+
     private fun createTestNote(id: String) =
         NoteEntity(
             id = id,
