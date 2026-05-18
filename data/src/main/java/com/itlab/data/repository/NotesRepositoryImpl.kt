@@ -42,28 +42,39 @@ class NotesRepositoryImpl(
     }
 
     override suspend fun updateNote(note: Note) {
-        val existingNote = noteDao.getNoteByIdAndUser(note.id, note.userId)
-        if (existingNote == null) {
-            return
+        val (newNoteEntity, incomingMediaEntities) = mapper.toEntities(note)
+
+        noteDao.getNoteByIdAndUser(note.id, note.userId) ?: return
+
+        val localMediaInDb = mediaDao.getMediaForNote(note.id)
+
+        val incomingIds = incomingMediaEntities.map { it.id }.toSet()
+        val mediaIdsToSoftDelete =
+            localMediaInDb
+                .map { it.id }
+                .filter { id -> id !in incomingIds }
+
+        if (mediaIdsToSoftDelete.isNotEmpty()) {
+            mediaDao.softDeleteMediaByIds(mediaIdsToSoftDelete)
         }
 
-        val (noteEntity, mediaEntities) = mapper.toEntities(note)
+        val finalMediaToInsert =
+            incomingMediaEntities.map { incoming ->
+                val alreadyExistingMedia = localMediaInDb.find { it.id == incoming.id }
+                if (alreadyExistingMedia != null) {
+                    incoming.copy(
+                        remoteUrl = alreadyExistingMedia.remoteUrl ?: incoming.remoteUrl,
+                        isSynced = alreadyExistingMedia.isSynced,
+                    )
+                } else {
+                    incoming
+                }
+            }
 
-        noteDao.update(noteEntity)
+        noteDao.update(newNoteEntity)
 
-        val currentActiveMedia = mediaDao.getMediaForNote(note.id)
-
-        val newMediaIds = mediaEntities.map { it.id }.toSet()
-
-        val mediaToSoftDelete = currentActiveMedia.filter { it.id !in newMediaIds }
-
-        if (mediaToSoftDelete.isNotEmpty()) {
-            val idsToDelete = mediaToSoftDelete.map { it.id }
-            mediaDao.softDeleteMediaByIds(idsToDelete)
-        }
-
-        if (mediaEntities.isNotEmpty()) {
-            mediaDao.insertAll(mediaEntities)
+        if (finalMediaToInsert.isNotEmpty()) {
+            mediaDao.insertAll(finalMediaToInsert)
         }
     }
 

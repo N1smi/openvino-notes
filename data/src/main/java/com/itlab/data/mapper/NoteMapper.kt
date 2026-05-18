@@ -11,7 +11,6 @@ import com.itlab.domain.model.SyncState
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import timber.log.Timber
-import java.util.UUID
 
 class NoteMapper(
     private val json: Json =
@@ -82,21 +81,33 @@ class NoteMapper(
         item: ContentItem,
         noteId: String,
     ): MediaEntity? {
-        val (source, type, mimeType) =
+        val type: String
+        val mimeType: String
+        val source =
             when (item) {
-                is ContentItem.Image -> Triple(item.source, "IMAGE", item.mimeType)
-                is ContentItem.File -> Triple(item.source, "FILE", item.mimeType)
+                is ContentItem.Image -> {
+                    type = "IMAGE"
+                    mimeType = item.mimeType
+                    item.source
+                }
+                is ContentItem.File -> {
+                    type = "FILE"
+                    mimeType = item.mimeType
+                    item.source
+                }
                 else -> return null
             }
 
         return MediaEntity(
-            id = UUID.randomUUID().toString(),
+            id = item.id,
             noteId = noteId,
             type = type,
             remoteUrl = source.remoteUrl,
             localPath = source.localPath,
             mimeType = mimeType,
             size = (item as? ContentItem.File)?.size,
+            isSynced = false,
+            isDeleted = false,
         )
     }
 
