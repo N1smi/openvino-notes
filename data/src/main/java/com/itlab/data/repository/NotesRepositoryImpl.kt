@@ -48,10 +48,23 @@ class NotesRepositoryImpl(
         }
 
         val (noteEntity, mediaEntities) = mapper.toEntities(note)
+
         noteDao.update(noteEntity)
 
-        mediaDao.deleteByNoteId(note.id)
-        if (mediaEntities.isNotEmpty()) mediaDao.insertAll(mediaEntities)
+        val currentActiveMedia = mediaDao.getMediaForNote(note.id)
+
+        val newMediaIds = mediaEntities.map { it.id }.toSet()
+
+        val mediaToSoftDelete = currentActiveMedia.filter { it.id !in newMediaIds }
+
+        if (mediaToSoftDelete.isNotEmpty()) {
+            val idsToDelete = mediaToSoftDelete.map { it.id }
+            mediaDao.softDeleteMediaByIds(idsToDelete)
+        }
+
+        if (mediaEntities.isNotEmpty()) {
+            mediaDao.insertAll(mediaEntities)
+        }
     }
 
     override suspend fun deleteNote(
@@ -59,5 +72,7 @@ class NotesRepositoryImpl(
         userId: String,
     ) {
         noteDao.softDeleteById(id, userId)
+
+        mediaDao.softDeleteByNoteId(id)
     }
 }

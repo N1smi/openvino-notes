@@ -42,21 +42,26 @@ class MediaDaoTest {
 
     private val defaultPath = """C:\Users\egoru\Downloads\Blazhin_-_Ne_perebivajj_64351892.mp3"""
 
+    private val baseMediaTemplate =
+        MediaEntity(
+            id = "default_id",
+            noteId = "default_note",
+            type = "IMAGE",
+            localPath = "local/path/to/media.mp3",
+            remoteUrl = null,
+            mimeType = "audio/mpeg",
+            isSynced = false,
+            isDeleted = false,
+        )
+
     private fun createMedia(
         id: String,
         noteId: String,
-        type: String = "audio",
-        localPath: String? = defaultPath,
-        remoteUrl: String? = null,
-    ) = MediaEntity(
-        id = id,
-        noteId = noteId,
-        type = type,
-        remoteUrl = remoteUrl,
-        localPath = localPath,
-        mimeType = "audio/mpeg",
-        size = 1024L,
-    )
+        configure: (MediaEntity.() -> MediaEntity)? = null,
+    ): MediaEntity {
+        val media = baseMediaTemplate.copy(id = id, noteId = noteId)
+        return configure?.invoke(media) ?: media
+    }
 
     @Before
     fun setup() {
@@ -84,7 +89,7 @@ class MediaDaoTest {
             insertParentNote(noteId)
 
             val audioPath = defaultPath
-            val media = createMedia(id = "m1", noteId = "note1", localPath = audioPath)
+            val media = createMedia(id = "m1", noteId = "note1") { copy(localPath = audioPath) }
 
             mediaDao.insert(media)
 
@@ -109,7 +114,10 @@ class MediaDaoTest {
 
             mediaDao.insertAll(list)
 
-            val updatedMedia = createMedia("m1", "note1", remoteUrl = "https://s3.yandex.net/bucket/audio.mp3")
+            val updatedMedia =
+                createMedia("m1", "note1") {
+                    copy(remoteUrl = "https://s3.yandex.net/bucket/audio.mp3")
+                }
             mediaDao.insertAll(listOf(updatedMedia))
 
             val result = mediaDao.getMediaForNote("note1")
@@ -120,30 +128,46 @@ class MediaDaoTest {
         }
 
     @Test
-    fun `getMediaForNoteFlow should notify about changes`() =
+    fun `softDeleteMediaByIds should mark specific media as deleted and hide from active queries`() =
         runTest {
             val noteId = "note1"
             insertParentNote(noteId)
 
-            val media = createMedia("m1", "note1")
-            mediaDao.insert(media)
+            mediaDao.insertAll(
+                listOf(
+                    createMedia("m1", noteId),
+                    createMedia("m2", noteId),
+                ),
+            )
 
-            val flowResult = mediaDao.getMediaForNoteFlow("note1").first()
-            assertEquals(1, flowResult.size)
+            mediaDao.softDeleteMediaByIds(listOf("m1"))
+
+            val activeResult = mediaDao.getMediaForNote(noteId)
+            assertEquals(1, activeResult.size)
+            assertEquals("m2", activeResult[0].id)
         }
 
     @Test
-    fun `delete should remove specific media entity`() =
+    fun `softDeleteByNoteId should mark all media associated with note as deleted`() =
         runTest {
-            val noteId = "note1"
-            insertParentNote(noteId)
+            insertParentNote("note1")
+            insertParentNote("note2")
 
-            val media = createMedia("m1", "note1")
-            mediaDao.insert(media)
-            mediaDao.delete(media)
+            mediaDao.insertAll(
+                listOf(
+                    createMedia("m1", "note1"),
+                    createMedia("m2", "note1"),
+                    createMedia("m3", "note2"),
+                ),
+            )
 
-            val result = mediaDao.getMediaForNote("note1")
-            assertTrue(result.isEmpty())
+            mediaDao.softDeleteByNoteId("note1")
+
+            val mediaNote1 = mediaDao.getMediaForNote("note1")
+            val mediaNote2 = mediaDao.getMediaForNote("note2")
+
+            assertTrue(mediaNote1.isEmpty())
+            assertEquals(1, mediaNote2.size)
         }
 
     @Test
@@ -165,26 +189,20 @@ class MediaDaoTest {
         }
 
     @Test
-    fun `deleteByNoteId should remove all media associated with note`() =
+    fun `getDeletedMediaToSync should return only unsynced media marked as deleted`() =
         runTest {
             insertParentNote("note1")
-            insertParentNote("note2")
 
-            mediaDao.insertAll(
-                listOf(
-                    createMedia("m1", "note1"),
-                    createMedia("m2", "note1"),
-                    createMedia("m3", "note2"),
-                ),
-            )
+            val activeUnsynced = createMedia("m1", "note1") { copy(isSynced = false, isDeleted = false) }
+            val deletedUnsynced = createMedia("m2", "note1") { copy(isSynced = false, isDeleted = true) }
+            val deletedSynced = createMedia("m3", "note1") { copy(isSynced = true, isDeleted = true) }
 
-            mediaDao.deleteByNoteId("note1")
+            mediaDao.insertAll(listOf(activeUnsynced, deletedUnsynced, deletedSynced))
 
-            val mediaNote1 = mediaDao.getMediaForNote("note1")
-            val mediaNote2 = mediaDao.getMediaForNote("note2")
+            val result = mediaDao.getDeletedMediaToSync(testUserId)
 
-            assertTrue(mediaNote1.isEmpty())
-            assertEquals(1, mediaNote2.size)
+            assertEquals(1, result.size)
+            assertEquals("m2", result[0].id)
         }
 
     @Test
@@ -220,28 +238,6 @@ class MediaDaoTest {
             assertEquals(2, result.size)
             assertTrue(result.any { it.id == "m1" })
             assertTrue(result.any { it.id == "m2" })
-        }
-
-    @Test
-    fun `deleteAll should clear media table`() =
-        runTest {
-            insertParentNote("note1")
-            insertParentNote("note2")
-
-            mediaDao.insertAll(
-                listOf(
-                    createMedia("m1", "note1"),
-                    createMedia("m2", "note2"),
-                ),
-            )
-
-            val beforeDelete = mediaDao.getAllMediaByUserId(testUserId).first()
-            assertEquals(2, beforeDelete.size)
-
-            mediaDao.deleteAll()
-
-            val afterDelete = mediaDao.getAllMediaByUserId(testUserId).first()
-            assertTrue("Table should be empty after deleteAll()", afterDelete.isEmpty())
         }
 
     @Test
@@ -287,5 +283,18 @@ class MediaDaoTest {
 
             assertEquals(1, result.size)
             assertEquals("media_my", result[0].id)
+        }
+
+    @Test
+    fun `hardDelete should physically remove row from database`() =
+        runTest {
+            insertParentNote("note1")
+            val media = createMedia("m1", "note1")
+            mediaDao.insert(media)
+
+            mediaDao.hardDelete(media)
+
+            val result = mediaDao.getMediaForNote("note1")
+            assertTrue(result.isEmpty())
         }
 }

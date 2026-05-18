@@ -26,5 +26,6 @@ data class MediaEntity(
     val localPath: String?,
     val mimeType: String,
     val isSynced: Boolean = false,
+    val isDeleted: Boolean = false,
     val size: Long? = null,
 )
