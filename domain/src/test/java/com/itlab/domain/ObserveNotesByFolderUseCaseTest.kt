@@ -2,9 +2,11 @@ package com.itlab.domain
 
 import com.itlab.domain.model.Note
 import com.itlab.domain.repository.NotesRepository
+import com.itlab.domain.usecase.noteusecase.GetUserIdUseCase
 import com.itlab.domain.usecase.noteusecase.ObserveNotesByFolderUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -22,10 +24,16 @@ class ObserveNotesByFolderUseCaseTest {
 
     private lateinit var observeNotesByFolderUseCase: ObserveNotesByFolderUseCase
 
+    @MockK
+    lateinit var getUserIdUsecase: GetUserIdUseCase
+
+    private val testUserId = "test_user_1"
+
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        observeNotesByFolderUseCase = ObserveNotesByFolderUseCase(repo)
+        every { getUserIdUsecase() } returns testUserId
+        observeNotesByFolderUseCase = ObserveNotesByFolderUseCase(repo, getUserIdUsecase)
     }
 
     @Test
@@ -37,7 +45,7 @@ class ObserveNotesByFolderUseCaseTest {
                     Note(userId = "u1", id = "1", folderId = "folder_1", createdAt = now, updatedAt = now),
                     Note(userId = "u1", id = "2", folderId = "folder_2", createdAt = now, updatedAt = now),
                 )
-            coEvery { repo.observeNotes() } returns flowOf(notes)
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(notes)
 
             val result = observeNotesByFolderUseCase(null).first()
 
@@ -54,7 +62,7 @@ class ObserveNotesByFolderUseCaseTest {
                     Note(userId = "u1", id = "1", folderId = targetFolder, createdAt = now, updatedAt = now),
                     Note(userId = "u1", id = "2", folderId = "other_folder", createdAt = now, updatedAt = now),
                 )
-            coEvery { repo.observeNotes() } returns flowOf(notes)
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(notes)
 
             val result = observeNotesByFolderUseCase(targetFolder).first()
 
@@ -75,7 +83,7 @@ class ObserveNotesByFolderUseCaseTest {
                         updatedAt = Clock.System.now(),
                     ),
                 )
-            coEvery { repo.observeNotes() } returns flowOf(notes)
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(notes)
 
             val result = observeNotesByFolderUseCase("A").first()
 

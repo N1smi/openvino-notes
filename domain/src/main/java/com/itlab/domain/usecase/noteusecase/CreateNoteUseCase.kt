@@ -8,12 +8,18 @@ import kotlin.time.Clock
 
 class CreateNoteUseCase(
     private val repo: NotesRepository,
+    private val getUserIdUseCase: GetUserIdUseCase,
 ) {
     suspend operator fun invoke(note: Note): Result<String> =
         runCatching {
+            val userId = getUserIdUseCase()
+            if (userId == null) {
+                return Result.failure(IllegalStateException("User must be authenticated"))
+            }
+
             val normalizedTitle = note.title.trim()
             val hasDuplicateTitle =
-                repo.observeNotes().first().any { existing ->
+                repo.observeNotes(userId).first().any { existing ->
                     existing.folderId == note.folderId &&
                         existing.title.trim().equals(normalizedTitle, ignoreCase = true)
                 }

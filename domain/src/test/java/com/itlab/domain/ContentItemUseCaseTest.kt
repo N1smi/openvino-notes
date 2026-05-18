@@ -7,24 +7,38 @@ import com.itlab.domain.usecase.contentusecase.AddContentItemUseCase
 import com.itlab.domain.usecase.contentusecase.CreateContentItemUseCase
 import com.itlab.domain.usecase.contentusecase.DeleteContentItemUseCase
 import com.itlab.domain.usecase.contentusecase.GetContentItemUseCase
+import com.itlab.domain.usecase.noteusecase.GetUserIdUseCase
+import io.mockk.MockKAnnotations
+import io.mockk.every
+import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Before
 import org.junit.Test
 
 class ContentItemUseCaseTest {
     val testUserId = "testID"
 
+    @MockK
+    lateinit var getUserIdUsecase: GetUserIdUseCase
+
     private class FakeNotesRepo : NotesRepository {
         private val store = mutableMapOf<String, Note>()
         private val flow = MutableStateFlow<List<Note>>(emptyList())
 
-        override fun observeNotes() = flow
+        override fun observeNotes(userId: String) = flow
 
-        override fun observeNotesByFolder(folderId: String) = flow
+        override fun observeNotesByFolder(
+            folderId: String,
+            userId: String,
+        ) = flow
 
-        override suspend fun getNoteById(id: String): Note? = store[id]
+        override suspend fun getNoteById(
+            id: String,
+            userId: String,
+        ): Note? = store[id]
 
         override suspend fun createNote(note: Note): String {
             store[note.id] = note
@@ -37,10 +51,19 @@ class ContentItemUseCaseTest {
             flow.value = store.values.toList()
         }
 
-        override suspend fun deleteNote(id: String) {
+        override suspend fun deleteNote(
+            id: String,
+            userId: String,
+        ) {
             store.remove(id)
             flow.value = store.values.toList()
         }
+    }
+
+    @Before
+    fun setUp() {
+        MockKAnnotations.init(this)
+        every { getUserIdUsecase() } returns testUserId
     }
 
     @Test
@@ -49,9 +72,9 @@ class ContentItemUseCaseTest {
             val repo = FakeNotesRepo()
 
             val createItem = CreateContentItemUseCase()
-            val addItem = AddContentItemUseCase(repo)
-            val getItem = GetContentItemUseCase(repo)
-            val deleteItem = DeleteContentItemUseCase(repo)
+            val addItem = AddContentItemUseCase(repo, getUserIdUsecase)
+            val getItem = GetContentItemUseCase(repo, getUserIdUsecase)
+            val deleteItem = DeleteContentItemUseCase(repo, getUserIdUsecase)
 
             val note = Note(id = "n1", title = "Test", userId = testUserId)
             repo.createNote(note)
@@ -78,7 +101,7 @@ class ContentItemUseCaseTest {
     fun addContentItem_without_id_returnsFailure() =
         runBlocking {
             val repo = FakeNotesRepo()
-            val addItem = AddContentItemUseCase(repo)
+            val addItem = AddContentItemUseCase(repo, getUserIdUsecase)
 
             val note = Note(id = "n1", title = "Test", userId = testUserId)
             repo.createNote(note)
@@ -99,8 +122,8 @@ class ContentItemUseCaseTest {
         runBlocking {
             val repo = FakeNotesRepo()
             val createItem = CreateContentItemUseCase()
-            val addItem = AddContentItemUseCase(repo)
-            val getItem = GetContentItemUseCase(repo)
+            val addItem = AddContentItemUseCase(repo, getUserIdUsecase)
+            val getItem = GetContentItemUseCase(repo, getUserIdUsecase)
 
             val note = Note(id = "n1", title = "Test", userId = testUserId)
             repo.createNote(note)
@@ -122,14 +145,14 @@ class ContentItemUseCaseTest {
     fun delete_non_existing_item_does_nothing() =
         runBlocking {
             val repo = FakeNotesRepo()
-            val deleteItem = DeleteContentItemUseCase(repo)
+            val deleteItem = DeleteContentItemUseCase(repo, getUserIdUsecase)
 
             val note = Note(id = "n1", title = "Test", userId = testUserId)
             repo.createNote(note)
 
             deleteItem("n1", "wrong-id").getOrThrow()
 
-            val result = repo.getNoteById("n1")
+            val result = repo.getNoteById("n1", testUserId)
             assertEquals(0, result?.contentItems?.size)
         }
 
@@ -138,7 +161,7 @@ class ContentItemUseCaseTest {
         runBlocking {
             val repo = FakeNotesRepo()
             val createItem = CreateContentItemUseCase()
-            val addItem = AddContentItemUseCase(repo)
+            val addItem = AddContentItemUseCase(repo, getUserIdUsecase)
 
             val note = Note(id = "n1", title = "Test", userId = testUserId)
             repo.createNote(note)
@@ -154,7 +177,7 @@ class ContentItemUseCaseTest {
     fun add_duplicate_content_item_id_throws() =
         runBlocking {
             val repo = FakeNotesRepo()
-            val addItem = AddContentItemUseCase(repo)
+            val addItem = AddContentItemUseCase(repo, getUserIdUsecase)
             val note = Note(id = "n1", title = "Test", userId = testUserId)
             repo.createNote(note)
 

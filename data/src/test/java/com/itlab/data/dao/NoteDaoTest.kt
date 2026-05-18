@@ -32,6 +32,7 @@ class NoteDaoTest {
         title: String,
         updatedAt: Instant = Instant.fromEpochMilliseconds(0),
         isSynced: Boolean = true,
+        isDeleted: Boolean = false,
     ) = NoteEntity(
         id = id,
         title = title,
@@ -40,6 +41,7 @@ class NoteDaoTest {
         updatedAt = updatedAt,
         isSynced = isSynced,
         userId = testUserId,
+        isDeleted = isDeleted,
     )
 
     @Before
@@ -66,7 +68,7 @@ class NoteDaoTest {
             val note = createNote("1", "Title 1")
             noteDao.insert(note)
 
-            val retrieved = noteDao.getNoteByld("1")
+            val retrieved = noteDao.getNoteByIdAndUser("1", testUserId)
 
             assertNotNull(retrieved)
             assertEquals(note.id, retrieved?.id)
@@ -85,18 +87,42 @@ class NoteDaoTest {
             val updated = note.copy(title = "Updated")
             noteDao.update(updated)
 
-            val retrieved = noteDao.getNoteByld("1")
+            val retrieved = noteDao.getNoteByIdAndUser("1", testUserId)
             assertEquals("Updated", retrieved?.title)
         }
 
     @Test
-    fun `delete should remove note from database`() =
+    fun `softDeleteById should mark note as deleted and hide from active notes`() =
         runTest {
             val note = createNote("1", "To be deleted")
             noteDao.insert(note)
-            noteDao.delete(note)
 
-            val retrieved = noteDao.getNoteByld("1")
+            val deleteTimestamp = 123456789L
+            noteDao.softDeleteById("1", testUserId, deleteTimestamp)
+
+            val activeNotes = noteDao.getAllNotesByUserId(testUserId).first()
+            assertTrue(activeNotes.none { it.id == "1" })
+
+            val deletedNotes = noteDao.getDeletedNotes(testUserId)
+            assertEquals(1, deletedNotes.size)
+            assertEquals("1", deletedNotes[0].id)
+
+            val rawNote = noteDao.getNoteByIdAndUser("1", testUserId)
+            assertNotNull(rawNote)
+            assertEquals(true, rawNote?.isDeleted)
+            assertEquals(false, rawNote?.isSynced)
+            assertEquals(deleteTimestamp, rawNote?.updatedAt?.toEpochMilliseconds())
+        }
+
+    @Test
+    fun `hardDeleteById should physically remove note from database`() =
+        runTest {
+            val note = createNote("1", "To be hard deleted")
+            noteDao.insert(note)
+
+            noteDao.hardDeleteById("1", testUserId)
+
+            val retrieved = noteDao.getNoteByIdAndUser("1", testUserId)
             assertNull(retrieved)
         }
 
@@ -109,7 +135,7 @@ class NoteDaoTest {
             noteDao.insert(oldNote)
             noteDao.insert(newNote)
 
-            val notes = noteDao.getAllNotes().first()
+            val notes = noteDao.getAllNotesByUserId(testUserId).first()
 
             assertEquals(2, notes.size)
             assertEquals("2", notes[0].id)
@@ -127,7 +153,7 @@ class NoteDaoTest {
             val note1Updated = createNote("1", "First Updated")
             noteDao.insertAll(listOf(note1Updated))
 
-            val notes = noteDao.getAllNotes().first()
+            val notes = noteDao.getAllNotesByUserId(testUserId).first()
             assertEquals(2, notes.size)
             assertTrue(notes.any { it.title == "First Updated" })
         }

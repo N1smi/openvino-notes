@@ -4,6 +4,7 @@ import com.itlab.domain.model.Note
 import com.itlab.domain.model.SyncState
 import com.itlab.domain.repository.NotesRepository
 import com.itlab.domain.usecase.noteusecase.CreateNoteUseCase
+import com.itlab.domain.usecase.noteusecase.GetUserIdUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.every
@@ -21,12 +22,18 @@ class CreateNoteUseCaseTest {
     @MockK
     lateinit var repo: NotesRepository
 
+    @MockK
+    lateinit var getUserIdUsecase: GetUserIdUseCase
+
     private lateinit var createNoteUseCase: CreateNoteUseCase
+
+    private val testUserId = "test_user_1"
 
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        createNoteUseCase = CreateNoteUseCase(repo)
+        every { getUserIdUsecase() } returns testUserId
+        createNoteUseCase = CreateNoteUseCase(repo, getUserIdUsecase)
     }
 
     @Test
@@ -38,7 +45,7 @@ class CreateNoteUseCaseTest {
                     every { this@mockk.folderId } returns folderId
                     every { this@mockk.title } returns "  Original Title  "
                 }
-            coEvery { repo.observeNotes() } returns flowOf(listOf(existingNote))
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(listOf(existingNote))
 
             val newNote =
                 mockk<Note> {
@@ -72,7 +79,7 @@ class CreateNoteUseCaseTest {
                     syncStatus = SyncState.PENDING,
                 )
 
-            coEvery { repo.observeNotes() } returns flowOf(listOf(existingNote))
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(listOf(existingNote))
             coEvery { repo.createNote(any()) } returns "new_id"
 
             val newNote =

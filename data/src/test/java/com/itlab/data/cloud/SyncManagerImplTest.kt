@@ -71,8 +71,9 @@ class SyncManagerImplTest {
             },
         )
 
+        coEvery { noteDao.getUnsyncedNotes(any()) } returns emptyList()
         coEvery { mediaDao.getUnsyncedMedia(any()) } returns emptyList()
-        every { mediaDao.getAllMedia() } returns flowOf(emptyList())
+        every { mediaDao.getAllMediaByUserId(any()) } returns flowOf(emptyList())
 
         coEvery { cloudDataSource.listMediaMetadata(any()) } returns Result.Success(emptyList())
 
@@ -150,7 +151,7 @@ class SyncManagerImplTest {
             val exception = Exception("Download Failed")
 
             coEvery { cloudDataSource.listNoteMetadata(any()) } returns Result.Success(listOf(meta))
-            every { noteDao.getAllNotes() } returns flowOf(emptyList())
+            every { noteDao.getAllNotesByUserId(any()) } returns flowOf(emptyList())
             coEvery { cloudDataSource.downloadNote("note1") } returns Result.Error(exception)
 
             val result = runCatching { syncManager.pullUpdates("user1") }
@@ -193,7 +194,7 @@ class SyncManagerImplTest {
             coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(listOf(cloudMeta))
 
             val localNote = createTestNote(localNoteId).copy(userId = userId, isSynced = true)
-            every { noteDao.getAllNotes() } returns flowOf(listOf(localNote))
+            every { noteDao.getAllNotesByUserId(any()) } returns flowOf(listOf(localNote))
 
             val remoteJson = "{\"id\":\"$remoteNoteId\"}"
             val remoteEntity = createTestNote(remoteNoteId).copy(userId = userId)
@@ -214,12 +215,12 @@ class SyncManagerImplTest {
                 noteDao.update(match { it.id == localNoteId && it.isSynced })
 
                 cloudDataSource.listNoteMetadata(userId)
-                noteDao.getAllNotes()
+                noteDao.getAllNotesByUserId(userId)
                 cloudDataSource.downloadNote(expectedRemotePath)
                 noteDao.insert(match { it.id == remoteNoteId })
 
                 cloudDataSource.listMediaMetadata(userId)
-                mediaDao.getAllMedia()
+                mediaDao.getAllMediaByUserId(userId)
             }
         }
 
@@ -233,7 +234,7 @@ class SyncManagerImplTest {
             val cloudKey = "users/$userId/media/$compositeId"
 
             coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(emptyList())
-            every { noteDao.getAllNotes() } returns flowOf(emptyList())
+            every { noteDao.getAllNotesByUserId(userId) } returns flowOf(emptyList())
 
             val cloudMeta =
                 com.itlab.domain.cloud.CloudMediaMetadata(
@@ -242,7 +243,7 @@ class SyncManagerImplTest {
                     mimeType = "image/png",
                 )
             coEvery { cloudDataSource.listMediaMetadata(userId) } returns Result.Success(listOf(cloudMeta))
-            every { mediaDao.getAllMedia() } returns flowOf(emptyList())
+            every { mediaDao.getAllMediaByUserId(userId) } returns flowOf(emptyList())
             coEvery { cloudDataSource.downloadMedia(eq(cloudKey), any()) } returns Result.Success(Unit)
 
             val mediaSlot = io.mockk.slot<com.itlab.data.entity.MediaEntity>()
@@ -275,7 +276,7 @@ class SyncManagerImplTest {
             val existingNoteId = "note_abc"
 
             val localNote = mockk<NoteEntity> { every { id } returns existingNoteId }
-            every { noteDao.getAllNotes() } returns flowOf(listOf(localNote))
+            every { noteDao.getAllNotesByUserId(userId) } returns flowOf(listOf(localNote))
 
             val remoteMetadata =
                 listOf(
@@ -340,7 +341,7 @@ class SyncManagerImplTest {
 
             coVerify(exactly = 1) {
                 cloudDataSource.downloadNote(remoteKey)
-                noteDao.insert(expectedEntity)
+                noteDao.insert(match { it.id == duplicateNoteId && it.userId == currentUserId })
             }
         }
 

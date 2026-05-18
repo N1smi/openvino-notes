@@ -3,10 +3,12 @@ package com.itlab.domain
 import com.itlab.domain.model.Note
 import com.itlab.domain.repository.NoteFolderRepository
 import com.itlab.domain.repository.NotesRepository
+import com.itlab.domain.usecase.noteusecase.GetUserIdUseCase
 import com.itlab.domain.usecase.noteusecase.MoveNoteToFolderUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -20,6 +22,11 @@ class MoveNoteToFolderUseCaseTest {
     lateinit var notesRepo: NotesRepository
 
     @MockK
+    lateinit var getUserIdUsecase: GetUserIdUseCase
+
+    private val testUserId = "user_folder_test"
+
+    @MockK
     lateinit var folderRepo: NoteFolderRepository
 
     private lateinit var moveNoteToFolderUseCase: MoveNoteToFolderUseCase
@@ -27,7 +34,8 @@ class MoveNoteToFolderUseCaseTest {
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        moveNoteToFolderUseCase = MoveNoteToFolderUseCase(notesRepo, folderRepo)
+        every { getUserIdUsecase() } returns testUserId
+        moveNoteToFolderUseCase = MoveNoteToFolderUseCase(notesRepo, folderRepo, getUserIdUsecase)
     }
 
     @Test
@@ -37,10 +45,10 @@ class MoveNoteToFolderUseCaseTest {
             val noteId = "note_1"
             val now = Instant.fromEpochMilliseconds(System.currentTimeMillis())
 
-            val note = Note(userId = "u1", id = noteId, folderId = "old_folder", createdAt = now, updatedAt = now)
+            val note = Note(userId = testUserId, id = noteId, folderId = "old_folder", createdAt = now, updatedAt = now)
 
             coEvery { folderRepo.getFolderById(folderId) } returns mockk() // Папка найдена
-            coEvery { notesRepo.getNoteById(noteId) } returns note
+            coEvery { notesRepo.getNoteById(noteId, testUserId) } returns note
             coEvery { notesRepo.updateNote(any()) } returns Unit
 
             val result = moveNoteToFolderUseCase(folderId, noteId)
@@ -67,7 +75,7 @@ class MoveNoteToFolderUseCaseTest {
             val folderId = "folder_1"
             val noteId = "missing_note"
             coEvery { folderRepo.getFolderById(folderId) } returns mockk()
-            coEvery { notesRepo.getNoteById(noteId) } returns null // Покрываем "Note not found"
+            coEvery { notesRepo.getNoteById(noteId, testUserId) } returns null // Покрываем "Note not found"
 
             val result = moveNoteToFolderUseCase(folderId, noteId)
 

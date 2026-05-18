@@ -3,8 +3,10 @@ package com.itlab.domain
 import com.itlab.domain.model.Note
 import com.itlab.domain.repository.NotesRepository
 import com.itlab.domain.usecase.noteusecase.GetNotesByTagUseCase
+import com.itlab.domain.usecase.noteusecase.GetUserIdUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -20,10 +22,16 @@ class GetNotesByTagUseCaseTest {
 
     private lateinit var getNotesByTagUseCase: GetNotesByTagUseCase
 
+    @MockK
+    lateinit var getUserIdUsecase: GetUserIdUseCase
+
+    private val testUserId = "test_user_1"
+
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        getNotesByTagUseCase = GetNotesByTagUseCase(repo)
+        every { getUserIdUsecase() } returns testUserId
+        getNotesByTagUseCase = GetNotesByTagUseCase(repo, getUserIdUsecase)
     }
 
     @Test
@@ -35,7 +43,7 @@ class GetNotesByTagUseCaseTest {
                     Note(userId = "u1", title = "N1", tags = setOf("work"), createdAt = now, updatedAt = now),
                     Note(userId = "u1", title = "N2", tags = setOf("home"), createdAt = now, updatedAt = now),
                 )
-            coEvery { repo.observeNotes() } returns flowOf(notes)
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(notes)
 
             val result = getNotesByTagUseCase("   ").first()
 
@@ -57,7 +65,7 @@ class GetNotesByTagUseCaseTest {
                     ),
                     Note(userId = "u1", title = "Home Note", tags = setOf("home"), createdAt = now, updatedAt = now),
                 )
-            coEvery { repo.observeNotes() } returns flowOf(notes)
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(notes)
             val result = getNotesByTagUseCase("WORK").first()
 
             assertEquals(1, result.size)
@@ -72,7 +80,7 @@ class GetNotesByTagUseCaseTest {
                 listOf(
                     Note(userId = "u1", title = "Note", tags = setOf("study"), createdAt = now, updatedAt = now),
                 )
-            coEvery { repo.observeNotes() } returns flowOf(notes)
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(notes)
 
             val result = getNotesByTagUseCase("vacation").first()
             assertEquals(0, result.size)

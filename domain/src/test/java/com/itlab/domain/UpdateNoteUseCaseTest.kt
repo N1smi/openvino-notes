@@ -2,10 +2,12 @@ package com.itlab.domain
 
 import com.itlab.domain.model.Note
 import com.itlab.domain.repository.NotesRepository
+import com.itlab.domain.usecase.noteusecase.GetUserIdUseCase
 import com.itlab.domain.usecase.noteusecase.UpdateNoteUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -21,10 +23,16 @@ class UpdateNoteUseCaseTest {
 
     private lateinit var updateNoteUseCase: UpdateNoteUseCase
 
+    @MockK
+    lateinit var getUserIdUsecase: GetUserIdUseCase
+
+    private val testUserId = "test_user_1"
+
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        updateNoteUseCase = UpdateNoteUseCase(repo)
+        every { getUserIdUsecase() } returns testUserId
+        updateNoteUseCase = UpdateNoteUseCase(repo, getUserIdUsecase)
     }
 
     @Test
@@ -35,7 +43,7 @@ class UpdateNoteUseCaseTest {
 
             val existingNote =
                 Note(
-                    userId = "u1",
+                    userId = testUserId,
                     id = "note_1",
                     title = "Meeting",
                     folderId = folderId,
@@ -44,7 +52,7 @@ class UpdateNoteUseCaseTest {
                 )
             val noteToUpdate =
                 Note(
-                    userId = "u1",
+                    userId = testUserId,
                     id = "note_2",
                     title = "  meeting  ",
                     folderId = folderId,
@@ -52,7 +60,7 @@ class UpdateNoteUseCaseTest {
                     updatedAt = now,
                 )
 
-            coEvery { repo.observeNotes() } returns flowOf(listOf(existingNote))
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(listOf(existingNote))
 
             val result = updateNoteUseCase(noteToUpdate)
 
@@ -66,9 +74,9 @@ class UpdateNoteUseCaseTest {
         runBlocking {
             val now = Instant.fromEpochMilliseconds(System.currentTimeMillis())
             val note =
-                Note(userId = "u1", id = "1", title = "Original", folderId = "A", createdAt = now, updatedAt = now)
+                Note(testUserId, id = "1", title = "Original", folderId = "A", createdAt = now, updatedAt = now)
 
-            coEvery { repo.observeNotes() } returns flowOf(listOf(note))
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(listOf(note))
             coEvery { repo.updateNote(any()) } returns Unit
 
             val result = updateNoteUseCase(note)
@@ -82,11 +90,11 @@ class UpdateNoteUseCaseTest {
         runBlocking {
             val now = Instant.fromEpochMilliseconds(System.currentTimeMillis())
             val existingNote =
-                Note(userId = "u1", id = "1", title = "Same", folderId = "Folder_A", createdAt = now, updatedAt = now)
+                Note(testUserId, id = "1", title = "Same", folderId = "Folder_A", createdAt = now, updatedAt = now)
             val noteToUpdate =
-                Note(userId = "u1", id = "2", title = "Same", folderId = "Folder_B", createdAt = now, updatedAt = now)
+                Note(testUserId, id = "2", title = "Same", folderId = "Folder_B", createdAt = now, updatedAt = now)
 
-            coEvery { repo.observeNotes() } returns flowOf(listOf(existingNote))
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(listOf(existingNote))
             coEvery { repo.updateNote(any()) } returns Unit
 
             val result = updateNoteUseCase(noteToUpdate)

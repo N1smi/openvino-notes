@@ -3,9 +3,11 @@ package com.itlab.domain
 import com.itlab.domain.model.ContentItem
 import com.itlab.domain.model.Note
 import com.itlab.domain.repository.NotesRepository
+import com.itlab.domain.usecase.noteusecase.GetUserIdUseCase
 import com.itlab.domain.usecase.noteusecase.SearchNotesUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -21,10 +23,16 @@ class SearchNotesUseCaseTest {
 
     private lateinit var searchNotesUseCase: SearchNotesUseCase
 
+    @MockK
+    lateinit var getUserIdUsecase: GetUserIdUseCase
+
+    private val testUserId = "test_user_1"
+
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        searchNotesUseCase = SearchNotesUseCase(repo)
+        every { getUserIdUsecase() } returns testUserId
+        searchNotesUseCase = SearchNotesUseCase(repo, getUserIdUsecase)
     }
 
     @Test
@@ -32,7 +40,7 @@ class SearchNotesUseCaseTest {
         runBlocking {
             val now = Instant.fromEpochMilliseconds(System.currentTimeMillis())
             val notes = listOf(Note(userId = "u1", title = "Note", createdAt = now, updatedAt = now))
-            coEvery { repo.observeNotes() } returns flowOf(notes)
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(notes)
 
             val result = searchNotesUseCase("   ").first()
 
@@ -56,7 +64,7 @@ class SearchNotesUseCaseTest {
                     ),
                     Note(userId = "u1", id = "3", title = "Work", createdAt = now, updatedAt = now),
                 )
-            coEvery { repo.observeNotes() } returns flowOf(notes)
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(notes)
 
             val resultText = searchNotesUseCase("BUY").first()
             assertEquals(1, resultText.size)
@@ -71,8 +79,8 @@ class SearchNotesUseCaseTest {
     fun `invoke should return empty list when nothing matches`() =
         runBlocking {
             val now = Instant.fromEpochMilliseconds(System.currentTimeMillis())
-            val notes = listOf(Note(userId = "u1", title = "A", createdAt = now, updatedAt = now))
-            coEvery { repo.observeNotes() } returns flowOf(notes)
+            val notes = listOf(Note(testUserId, title = "A", createdAt = now, updatedAt = now))
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(notes)
 
             val result = searchNotesUseCase("xyz").first()
 
@@ -86,7 +94,7 @@ class SearchNotesUseCaseTest {
             val notes =
                 listOf(
                     Note(
-                        userId = "u1",
+                        userId = testUserId,
                         id = "1",
                         title = "Shopping List",
                         folderId = "folder_a",
@@ -94,7 +102,7 @@ class SearchNotesUseCaseTest {
                         updatedAt = now,
                     ),
                     Note(
-                        userId = "u1",
+                        userId = testUserId,
                         id = "2",
                         title = "Shopping budget",
                         folderId = "folder_b",
@@ -102,7 +110,7 @@ class SearchNotesUseCaseTest {
                         updatedAt = now,
                     ),
                 )
-            coEvery { repo.observeNotes() } returns flowOf(notes)
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(notes)
 
             val result = searchNotesUseCase("shop", folderId = "folder_a").first()
 
@@ -117,7 +125,7 @@ class SearchNotesUseCaseTest {
 
             val noteWithMixedContent =
                 Note(
-                    userId = "u1",
+                    userId = testUserId,
                     id = "mixed_id",
                     title = "Title",
                     contentItems =
@@ -130,7 +138,7 @@ class SearchNotesUseCaseTest {
                     updatedAt = now,
                 )
 
-            coEvery { repo.observeNotes() } returns flowOf(listOf(noteWithMixedContent))
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(listOf(noteWithMixedContent))
 
             val result = searchNotesUseCase("SECRET").first()
 

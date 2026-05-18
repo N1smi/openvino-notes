@@ -215,7 +215,7 @@ class MediaDaoTest {
             mediaDao.insert(media1)
             mediaDao.insert(media2)
 
-            val result = mediaDao.getAllMedia().first()
+            val result = mediaDao.getAllMediaByUserId(testUserId).first()
 
             assertEquals(2, result.size)
             assertTrue(result.any { it.id == "m1" })
@@ -235,12 +235,12 @@ class MediaDaoTest {
                 ),
             )
 
-            val beforeDelete = mediaDao.getAllMedia().first()
+            val beforeDelete = mediaDao.getAllMediaByUserId(testUserId).first()
             assertEquals(2, beforeDelete.size)
 
             mediaDao.deleteAll()
 
-            val afterDelete = mediaDao.getAllMedia().first()
+            val afterDelete = mediaDao.getAllMediaByUserId(testUserId).first()
             assertTrue("Table should be empty after deleteAll()", afterDelete.isEmpty())
         }
 
@@ -249,12 +249,12 @@ class MediaDaoTest {
         runTest {
             insertParentNote("note1")
 
-            val result1 = mediaDao.getAllMedia().first()
+            val result1 = mediaDao.getAllMediaByUserId(testUserId).first()
             assertTrue(result1.isEmpty())
 
             mediaDao.insert(createMedia("m1", "note1"))
 
-            val result2 = mediaDao.getAllMedia().first()
+            val result2 = mediaDao.getAllMediaByUserId(testUserId).first()
             assertEquals(1, result2.size)
             assertEquals("m1", result2[0].id)
         }

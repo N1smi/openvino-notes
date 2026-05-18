@@ -13,18 +13,24 @@ class NotesRepositoryImpl(
     private val mediaDao: MediaDao,
     private val mapper: NoteMapper,
 ) : NotesRepository {
-    override fun observeNotes(): Flow<List<Note>> =
-        noteDao.getAllNotes().map { entities ->
+    override fun observeNotes(userId: String): Flow<List<Note>> =
+        noteDao.getAllNotesByUserId(userId).map { entities ->
             entities.map { mapper.toDomain(it) }
         }
 
-    override fun observeNotesByFolder(folderId: String): Flow<List<Note>> =
-        noteDao.getNotesByFolder(folderId).map { entities ->
+    override fun observeNotesByFolder(
+        folderId: String,
+        userId: String,
+    ): Flow<List<Note>> =
+        noteDao.getNotesByFolderAndUser(folderId, userId).map { entities ->
             entities.map { mapper.toDomain(it) }
         }
 
-    override suspend fun getNoteById(id: String): Note? =
-        noteDao.getNoteByld(id)?.let {
+    override suspend fun getNoteById(
+        id: String,
+        userId: String,
+    ): Note? =
+        noteDao.getNoteByIdAndUser(id, userId)?.let {
             mapper.toDomain(it)
         }
 
@@ -36,6 +42,11 @@ class NotesRepositoryImpl(
     }
 
     override suspend fun updateNote(note: Note) {
+        val existingNote = noteDao.getNoteByIdAndUser(note.id, note.userId)
+        if (existingNote == null) {
+            return
+        }
+
         val (noteEntity, mediaEntities) = mapper.toEntities(note)
         noteDao.update(noteEntity)
 
@@ -43,7 +54,10 @@ class NotesRepositoryImpl(
         if (mediaEntities.isNotEmpty()) mediaDao.insertAll(mediaEntities)
     }
 
-    override suspend fun deleteNote(id: String) {
-        noteDao.getNoteByld(id)?.let { noteDao.delete(it) }
+    override suspend fun deleteNote(
+        id: String,
+        userId: String,
+    ) {
+        noteDao.softDeleteById(id, userId)
     }
 }

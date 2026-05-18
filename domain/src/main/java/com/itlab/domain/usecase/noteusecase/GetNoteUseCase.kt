@@ -5,6 +5,11 @@ import com.itlab.domain.repository.NotesRepository
 
 class GetNoteUseCase(
     private val repo: NotesRepository,
+    private val getUserIdUseCase: GetUserIdUseCase,
 ) {
-    suspend operator fun invoke(id: String): Note? = repo.getNoteById(id)
+    suspend operator fun invoke(id: String): Note? {
+        val userId = getUserIdUseCase() ?: return null
+
+        return repo.getNoteById(id, userId)
+    }
 }

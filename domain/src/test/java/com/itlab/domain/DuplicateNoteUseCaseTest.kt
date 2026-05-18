@@ -5,8 +5,10 @@ import com.itlab.domain.model.DataSource
 import com.itlab.domain.model.Note
 import com.itlab.domain.repository.NotesRepository
 import com.itlab.domain.usecase.noteusecase.DuplicateNoteUseCase
+import com.itlab.domain.usecase.noteusecase.GetUserIdUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
@@ -15,15 +17,21 @@ import org.junit.Test
 import kotlin.time.Instant
 
 class DuplicateNoteUseCaseTest {
+    val testUserId = "testID"
+
     @MockK
     lateinit var repo: NotesRepository
 
     private lateinit var duplicateNoteUseCase: DuplicateNoteUseCase
 
+    @MockK
+    lateinit var getUserIdUsecase: GetUserIdUseCase
+
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        duplicateNoteUseCase = DuplicateNoteUseCase(repo)
+        every { getUserIdUsecase() } returns testUserId
+        duplicateNoteUseCase = DuplicateNoteUseCase(repo, getUserIdUsecase)
     }
 
     @Test
@@ -49,7 +57,7 @@ class DuplicateNoteUseCaseTest {
 
             val originalNote =
                 Note(
-                    userId = "user_1",
+                    userId = testUserId,
                     id = noteId,
                     title = "Original",
                     contentItems = items,
@@ -57,7 +65,7 @@ class DuplicateNoteUseCaseTest {
                     updatedAt = now,
                 )
 
-            coEvery { repo.getNoteById(noteId) } returns originalNote
+            coEvery { repo.getNoteById(noteId, testUserId) } returns originalNote
             coEvery { repo.createNote(any()) } returns "new_id"
 
             val result = duplicateNoteUseCase(noteId)

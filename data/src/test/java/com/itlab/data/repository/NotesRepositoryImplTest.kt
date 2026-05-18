@@ -75,34 +75,34 @@ class NotesRepositoryImplTest {
     fun `deleteNote deletes by entity from dao`() =
         runTest {
             val noteId = "1"
-            coEvery { noteDao.getNoteByld(noteId) } returns mockk(relaxed = true)
+            coEvery { noteDao.getNoteByIdAndUser(noteId, testUserId) } returns mockk(relaxed = true)
 
-            repository.deleteNote(noteId)
-            coVerify { noteDao.delete(any()) }
+            repository.deleteNote(noteId, testUserId)
+            coVerify { noteDao.softDeleteById(noteId, testUserId, any()) }
         }
 
     @Test
     fun `observeNotes emits mapped list from dao`() =
         runTest {
             val entities = listOf(mockk<NoteEntity>(relaxed = true))
-            coEvery { noteDao.getAllNotes() } returns flowOf(entities)
+            coEvery { noteDao.getAllNotesByUserId(testUserId) } returns flowOf(entities)
 
-            val result = repository.observeNotes().first()
+            val result = repository.observeNotes(testUserId).first()
 
             assertEquals(1, result.size)
-            coVerify { noteDao.getAllNotes() }
+            coVerify { noteDao.getAllNotesByUserId(testUserId) }
         }
 
     @Test
     fun `observeNotesByFolder emits filtered list`() =
         runTest {
             val folderId = "folder_x"
-            coEvery { noteDao.getNotesByFolder(folderId) } returns flowOf(emptyList())
+            coEvery { noteDao.getNotesByFolderAndUser(folderId, testUserId) } returns flowOf(emptyList())
 
-            val result = repository.observeNotesByFolder(folderId).first()
+            val result = repository.observeNotesByFolder(folderId, testUserId).first()
 
             assertTrue(result.isEmpty())
-            coVerify { noteDao.getNotesByFolder(folderId) }
+            coVerify { noteDao.getNotesByFolderAndUser(folderId, testUserId) }
         }
 
     @Test
@@ -152,29 +152,29 @@ class NotesRepositoryImplTest {
     @Test
     fun `deleteNote does nothing if note not found`() =
         runTest {
-            coEvery { noteDao.getNoteByld("non_existent") } returns null
+            val nonExistentId = "non_existent"
 
-            repository.deleteNote("non_existent")
+            repository.deleteNote(nonExistentId, testUserId)
 
-            coVerify(exactly = 0) { noteDao.delete(any()) }
+            coVerify(exactly = 1) { noteDao.softDeleteById(nonExistentId, testUserId, any()) }
         }
 
     @Test
     fun `getNoteById returns null correctly`() =
         runTest {
-            coEvery { noteDao.getNoteByld("any") } returns null
-            val result = repository.getNoteById("any")
+            coEvery { noteDao.getNoteByIdAndUser("any", testUserId) } returns null
+            val result = repository.getNoteById("any", testUserId)
             assertNull(result)
         }
 
     @Test
     fun `deleteNote should not call dao delete if note is null`() =
         runTest {
-            coEvery { noteDao.getNoteByld("missing_id") } returns null
+            val missingId = "missing_id"
 
-            repository.deleteNote("missing_id")
+            repository.deleteNote(missingId, testUserId)
 
-            coVerify(exactly = 0) { noteDao.delete(any()) }
+            coVerify(exactly = 1) { noteDao.softDeleteById(missingId, testUserId, any()) }
         }
 
     @Test
@@ -182,9 +182,9 @@ class NotesRepositoryImplTest {
         runTest {
             val folderId = "folder_1"
             val flow = MutableStateFlow<List<NoteEntity>>(emptyList())
-            coEvery { noteDao.getNotesByFolder(folderId) } returns flow
+            coEvery { noteDao.getNotesByFolderAndUser(folderId, testUserId) } returns flow
 
-            val firstResult = repository.observeNotesByFolder(folderId).first()
+            val firstResult = repository.observeNotesByFolder(folderId, testUserId).first()
             assertTrue(firstResult.isEmpty())
 
             val entity =
@@ -192,7 +192,7 @@ class NotesRepositoryImplTest {
                     every { id } returns "n1"
                 }
             flow.value = listOf(entity)
-            val secondResult = repository.observeNotesByFolder(folderId).first()
+            val secondResult = repository.observeNotesByFolder(folderId, testUserId).first()
             assertEquals(1, secondResult.size)
         }
 
@@ -200,9 +200,9 @@ class NotesRepositoryImplTest {
     fun `observeNotes emits list when dao has data`() =
         runTest {
             val entity = mockk<NoteEntity>(relaxed = true)
-            coEvery { noteDao.getAllNotes() } returns flowOf(listOf(entity))
+            coEvery { noteDao.getAllNotesByUserId(testUserId) } returns flowOf(listOf(entity))
 
-            val result = repository.observeNotes().first()
+            val result = repository.observeNotes(testUserId).first()
 
             assertEquals(1, result.size)
         }
@@ -210,11 +210,11 @@ class NotesRepositoryImplTest {
     @Test
     fun `deleteNote handles missing note gracefully`() =
         runTest {
-            coEvery { noteDao.getNoteByld("unknown") } returns null
+            val unknownId = "unknown"
 
-            repository.deleteNote("unknown")
+            repository.deleteNote(unknownId, testUserId)
 
-            coVerify(exactly = 0) { noteDao.delete(any()) }
+            coVerify(exactly = 1) { noteDao.softDeleteById(unknownId, testUserId, any()) }
         }
 
     @Test
@@ -223,9 +223,9 @@ class NotesRepositoryImplTest {
             val noteId = "note_123"
             val entity = mockk<NoteEntity>(relaxed = true)
 
-            coEvery { noteDao.getNoteByld(noteId) } returns entity
+            coEvery { noteDao.getNoteByIdAndUser(noteId, testUserId) } returns entity
 
-            val result = repository.getNoteById(noteId)
+            val result = repository.getNoteById(noteId, testUserId)
 
             assertNotNull(result)
         }

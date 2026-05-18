@@ -3,8 +3,10 @@ package com.itlab.domain
 import com.itlab.domain.model.Note
 import com.itlab.domain.repository.NotesRepository
 import com.itlab.domain.usecase.noteusecase.GetAllFavoritesUseCase
+import com.itlab.domain.usecase.noteusecase.GetUserIdUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -21,10 +23,16 @@ class GetAllFavoritesUseCaseTest {
 
     private lateinit var getAllFavoritesUseCase: GetAllFavoritesUseCase
 
+    @MockK
+    lateinit var getUserIdUsecase: GetUserIdUseCase
+
+    private val testUserId = "test_user_1"
+
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        getAllFavoritesUseCase = GetAllFavoritesUseCase(repo)
+        every { getUserIdUsecase() } returns testUserId
+        getAllFavoritesUseCase = GetAllFavoritesUseCase(repo, getUserIdUsecase)
     }
 
     @Test
@@ -36,7 +44,7 @@ class GetAllFavoritesUseCaseTest {
             val note2 =
                 Note(userId = "u1", id = "2", title = "Not Fav", isFavorite = false, createdAt = now, updatedAt = now)
 
-            coEvery { repo.observeNotes() } returns flowOf(listOf(note1, note2))
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(listOf(note1, note2))
 
             val result = getAllFavoritesUseCase().first()
 
@@ -51,7 +59,7 @@ class GetAllFavoritesUseCaseTest {
             val now = Instant.fromEpochMilliseconds(System.currentTimeMillis())
             val note = Note(userId = "u1", id = "3", isFavorite = false, createdAt = now, updatedAt = now)
 
-            coEvery { repo.observeNotes() } returns flowOf(listOf(note))
+            coEvery { repo.observeNotes(testUserId) } returns flowOf(listOf(note))
 
             val result = getAllFavoritesUseCase().first()
 

@@ -11,9 +11,6 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MediaDao {
-    @Query("SELECT * FROM media")
-    fun getAllMedia(): Flow<List<MediaEntity>>
-
     @Query("SELECT * FROM media WHERE noteId = :noteId")
     fun getMediaForNoteFlow(noteId: String): Flow<List<MediaEntity>>
 
