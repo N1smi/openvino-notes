@@ -71,7 +71,7 @@ class SyncManagerImplTest {
             },
         )
 
-        coEvery { mediaDao.getUnsyncedMedia() } returns emptyList()
+        coEvery { mediaDao.getUnsyncedMedia(any()) } returns emptyList()
         every { mediaDao.getAllMedia() } returns flowOf(emptyList())
 
         coEvery { cloudDataSource.listMediaMetadata(any()) } returns Result.Success(emptyList())
@@ -92,7 +92,7 @@ class SyncManagerImplTest {
     @Test(expected = IOException::class)
     fun `sync should handle IOException`() =
         runBlocking {
-            coEvery { noteDao.getUnsyncedNotes() } throws IOException("No Internet")
+            coEvery { noteDao.getUnsyncedNotes("user1") } throws IOException("No Internet")
 
             try {
                 syncManager.sync("user1")
@@ -106,7 +106,7 @@ class SyncManagerImplTest {
     @Test(expected = SerializationException::class)
     fun `sync should handle SerializationException`() =
         runBlocking {
-            coEvery { noteDao.getUnsyncedNotes() } throws SerializationException("Bad JSON")
+            coEvery { noteDao.getUnsyncedNotes("user1") } throws SerializationException("Bad JSON")
 
             try {
                 syncManager.sync("user1")
@@ -118,7 +118,7 @@ class SyncManagerImplTest {
     @Test(expected = IllegalStateException::class)
     fun `sync should handle IllegalStateException`() =
         runBlocking {
-            coEvery { noteDao.getUnsyncedNotes() } throws IllegalStateException("Wrong state")
+            coEvery { noteDao.getUnsyncedNotes("user1") } throws IllegalStateException("Wrong state")
 
             try {
                 syncManager.sync("user1")
@@ -133,7 +133,7 @@ class SyncManagerImplTest {
             val note = createTestNote("1")
             val exception = Exception("Upload Failed")
 
-            coEvery { noteDao.getUnsyncedNotes() } returns listOf(note)
+            coEvery { noteDao.getUnsyncedNotes(note.userId) } returns listOf(note)
             with(jsonConverter) { every { note.toJson() } returns "{}" }
             coEvery { cloudDataSource.uploadNote(any(), any()) } returns Result.Error(exception)
 
@@ -182,7 +182,7 @@ class SyncManagerImplTest {
             val expectedRemotePath = "users/$userId/notes/$remoteNoteId"
 
             val unsyncedNote = createTestNote(localNoteId).copy(userId = userId, isSynced = false)
-            coEvery { noteDao.getUnsyncedNotes() } returns listOf(unsyncedNote)
+            coEvery { noteDao.getUnsyncedNotes(userId) } returns listOf(unsyncedNote)
             with(jsonConverter) {
                 every { unsyncedNote.toJson() } returns "{\"id\":\"$localNoteId\"}"
             }
@@ -207,8 +207,8 @@ class SyncManagerImplTest {
             assertEquals(SyncState.Success, syncManager.syncState.value)
 
             coVerifyOrder {
-                noteDao.getUnsyncedNotes()
-                mediaDao.getUnsyncedMedia()
+                noteDao.getUnsyncedNotes(userId)
+                mediaDao.getUnsyncedMedia(userId)
 
                 cloudDataSource.uploadNote(expectedLocalPath, any())
                 noteDao.update(match { it.id == localNoteId && it.isSynced })

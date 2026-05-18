@@ -20,8 +20,8 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE folderId = :folderId ORDER BY updatedAt DESC")
     fun getNotesByFolder(folderId: String): Flow<List<NoteEntity>>
 
-    @Query("SELECT * FROM notes WHERE isSynced = 0 AND isDeleted = 0")
-    suspend fun getUnsyncedNotes(): List<NoteEntity>
+    @Query("SELECT * FROM notes WHERE isSynced = 0 AND isDeleted = 0 AND userId = :userId")
+    suspend fun getUnsyncedNotes(userId: String): List<NoteEntity>
 
     @Query("SELECT * FROM notes WHERE isDeleted = 1")
     suspend fun getDeletedNotes(): List<NoteEntity>

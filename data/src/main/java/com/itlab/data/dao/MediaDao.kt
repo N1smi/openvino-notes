@@ -20,8 +20,14 @@ interface MediaDao {
     @Query("SELECT * FROM media WHERE noteId = :noteId")
     suspend fun getMediaForNote(noteId: String): List<MediaEntity>
 
-    @Query("SELECT * FROM media WHERE isSynced = 0")
-    suspend fun getUnsyncedMedia(): List<MediaEntity>
+    @Query(
+        """
+    SELECT media.* FROM media
+    INNER JOIN notes ON media.noteId = notes.id
+    WHERE media.isSynced = 0 AND notes.userId = :userId
+""",
+    )
+    suspend fun getUnsyncedMedia(userId: String): List<MediaEntity>
 
     @Query("DELETE FROM media WHERE noteId = :noteId")
     suspend fun deleteByNoteId(noteId: String)

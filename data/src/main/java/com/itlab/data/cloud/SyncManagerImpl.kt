@@ -63,8 +63,8 @@ class SyncManagerImpl(
     }
 
     override suspend fun pushChanges(userId: String) {
-        val unsyncedEntities = noteDao.getUnsyncedNotes()
-        val unsyncedMedia = mediaDao.getUnsyncedMedia()
+        val unsyncedEntities = noteDao.getUnsyncedNotes(userId)
+        val unsyncedMedia = mediaDao.getUnsyncedMedia(userId)
 
         for (entity in unsyncedEntities) {
             val json = with(jsonConverter) { entity.toJson() }

@@ -141,9 +141,36 @@ class NoteDaoTest {
             noteDao.insert(synced)
             noteDao.insert(unsynced)
 
-            val result = noteDao.getUnsyncedNotes()
+            val result = noteDao.getUnsyncedNotes(testUserId)
 
             assertEquals(1, result.size)
             assertEquals("2", result[0].id)
+        }
+
+    @Test
+    fun `getUnsyncedNotes should isolate data and return only notes belonging to requested userId`() =
+        runTest {
+            val otherUserId = "stranger_danger"
+
+            val currentUserNote = createNote("note_my", "My Unsynced Note", isSynced = false)
+
+            val otherUserNote =
+                NoteEntity(
+                    id = "note_alien",
+                    title = "Alien Unsynced Note",
+                    content = "Content",
+                    createdAt = testTime,
+                    updatedAt = Instant.fromEpochMilliseconds(0),
+                    isSynced = false,
+                    userId = otherUserId,
+                )
+
+            noteDao.insert(currentUserNote)
+            noteDao.insert(otherUserNote)
+
+            val result = noteDao.getUnsyncedNotes(testUserId)
+
+            assertEquals(1, result.size)
+            assertEquals("note_my", result[0].id)
         }
 }

@@ -157,7 +157,7 @@ class MediaDaoTest {
             mediaDao.insert(syncedMedia)
             mediaDao.insert(unsyncedMedia)
 
-            val result = mediaDao.getUnsyncedMedia()
+            val result = mediaDao.getUnsyncedMedia(testUserId)
 
             assertEquals(1, result.size)
             assertEquals("m2", result[0].id)
@@ -257,5 +257,35 @@ class MediaDaoTest {
             val result2 = mediaDao.getAllMedia().first()
             assertEquals(1, result2.size)
             assertEquals("m1", result2[0].id)
+        }
+
+    @Test
+    fun `getUnsyncedMedia should isolate data and return only media belonging to requested userId`() =
+        runTest {
+            val otherUserId = "stranger_danger"
+            insertParentNote("note_current_user")
+
+            val otherNote =
+                NoteEntity(
+                    id = "note_other_user",
+                    title = "Other User Note",
+                    content = "Secret Content",
+                    createdAt = testTime,
+                    updatedAt = Instant.fromEpochMilliseconds(0),
+                    isSynced = true,
+                    userId = otherUserId,
+                )
+            noteDao.insert(otherNote)
+
+            val currentUserMedia = createMedia("media_my", "note_current_user").copy(isSynced = false)
+            val otherUserMedia = createMedia("media_alien", "note_other_user").copy(isSynced = false)
+
+            mediaDao.insert(currentUserMedia)
+            mediaDao.insert(otherUserMedia)
+
+            val result = mediaDao.getUnsyncedMedia(testUserId)
+
+            assertEquals(1, result.size)
+            assertEquals("media_my", result[0].id)
         }
 }
