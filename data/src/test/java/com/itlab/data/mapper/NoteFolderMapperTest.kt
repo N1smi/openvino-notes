@@ -10,6 +10,8 @@ class NoteFolderMapperTest {
     val mapper = NoteFolderMapper()
     val testTime = Instant.parse("2026-03-24T12:00:00Z")
 
+    private val testUserId = "test_user_1"
+
     @Test
     fun `toEntity should map model correctly`() {
         val uiMetadata =
@@ -26,6 +28,7 @@ class NoteFolderMapperTest {
                 createdAt = testTime,
                 updatedAt = testTime,
                 metadata = uiMetadata,
+                userId = testUserId,
             )
 
         val entityFolder = mapper.toEntity(noteFolder)
@@ -35,6 +38,7 @@ class NoteFolderMapperTest {
         assertEquals(noteFolder.createdAt, entityFolder.createdAt)
         assertEquals(noteFolder.updatedAt, entityFolder.updatedAt)
         assertEquals(noteFolder.metadata, entityFolder.metadata)
+        assertEquals(noteFolder.userId, entityFolder.userId)
     }
 
     @Test
@@ -54,6 +58,7 @@ class NoteFolderMapperTest {
                 createdAt = testTime,
                 updatedAt = testTime,
                 metadata = uiMetadata,
+                userId = testUserId,
             )
 
         val noteFolder = mapper.toDomain(entityFolder)
@@ -63,5 +68,6 @@ class NoteFolderMapperTest {
         assertEquals(noteFolder.createdAt, entityFolder.createdAt)
         assertEquals(noteFolder.updatedAt, entityFolder.updatedAt)
         assertEquals(noteFolder.metadata, entityFolder.metadata)
+        assertEquals(noteFolder.userId, entityFolder.userId)
     }
 }

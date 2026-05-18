@@ -1,7 +1,6 @@
 package com.itlab.data.repository
 
 import com.itlab.data.dao.FolderDao
-import com.itlab.data.entity.FolderEntity
 import com.itlab.data.mapper.NoteFolderMapper
 import com.itlab.domain.model.NoteFolder
 import io.mockk.Runs
@@ -23,6 +22,7 @@ class NoteFolderRepositoryImplTest {
     private val mapper = NoteFolderMapper()
     private val repository = NoteFolderRepositoryImpl(folderDao, mapper)
 
+    private val testUserId = "test_user_1"
     private val testFolder =
         NoteFolder(
             id = "1",
@@ -30,125 +30,104 @@ class NoteFolderRepositoryImplTest {
             createdAt = Clock.System.now(),
             updatedAt = Clock.System.now(),
             metadata = emptyMap(),
+            userId = testUserId,
         )
 
     @Test
     fun `observeFolders emits mapped domain list`() =
         runTest {
             val entity = mapper.toEntity(testFolder)
-            coEvery { folderDao.getAllFolders() } returns flowOf(listOf(entity))
+            coEvery { folderDao.getActiveFoldersByUserId(testUserId) } returns flowOf(listOf(entity))
 
-            val result = repository.observeFolders().first()
+            val result = repository.observeFolders(testUserId).first()
 
             assertEquals(1, result.size)
             assertEquals(testFolder.name, result[0].name)
         }
 
     @Test
-    fun `renameFolder calls dao updateName`() =
+    fun `renameFolder calls dao updateName with current timestamp`() =
         runTest {
-            repository.renameFolder("1", "New Name")
-            coEvery { folderDao.updateName("1", "New Name") }
+            coEvery { folderDao.updateName(any(), any(), any(), any()) } just Runs
+
+            repository.renameFolder("1", testUserId, "New Name")
+
+            coVerify(exactly = 1) {
+                folderDao.updateName(id = "1", userId = testUserId, name = "New Name", updatedAt = any())
+            }
         }
 
     @Test
-    fun `getFolderById returns mapped folder or null`() =
+    fun `deleteFolder calls dao softDeleteById instead of physical delete`() =
         runTest {
-            coEvery { folderDao.getFolderById("1") } returns mapper.toEntity(testFolder)
-            coEvery { folderDao.getFolderById("2") } returns null
+            coEvery { folderDao.softDeleteById(any(), any(), any()) } just Runs
 
-            assertEquals("Work", repository.getFolderById("1")?.name)
-            assertEquals(null, repository.getFolderById("2"))
+            repository.deleteFolder("1", testUserId)
+
+            coVerify(exactly = 1) {
+                folderDao.softDeleteById(id = "1", userId = testUserId, updatedAt = any())
+            }
         }
 
     @Test
-    fun `observeFolders emits empty list when dao is empty`() =
+    fun `getFolderById returns mapped folder when found`() =
         runTest {
-            coEvery { folderDao.getAllFolders() } returns flowOf(emptyList())
+            val entity = mapper.toEntity(testFolder)
+            coEvery { folderDao.getFolderByIdAndUser("1", testUserId) } returns entity
 
-            val result = repository.observeFolders().first()
+            val result = repository.getFolderById("1", testUserId)
 
-            assertTrue(result.isEmpty())
-        }
-
-    @Test
-    fun `deleteFolder does nothing if folder not found`() =
-        runTest {
-            coEvery { folderDao.getFolderById("999") } returns null
-
-            repository.deleteFolder("999")
-
-            coVerify(exactly = 0) { folderDao.delete(any()) }
-        }
-
-    @Test
-    fun `updateFolder calls dao update`() =
-        runTest {
-            repository.updateFolder(testFolder)
-            coVerify { folderDao.update(any()) }
-        }
-
-    @Test
-    fun `deleteFolder should skip deletion if folder does not exist`() =
-        runTest {
-            coEvery { folderDao.getFolderById("id") } returns null
-
-            repository.deleteFolder("id")
-
-            coVerify(exactly = 0) { folderDao.delete(any()) }
+            assertEquals("Work", result?.name)
+            assertEquals(testUserId, result?.userId)
         }
 
     @Test
     fun `getFolderById returns null when dao returns null`() =
         runTest {
-            coEvery { folderDao.getFolderById("any") } returns null
-            val result = repository.getFolderById("any")
+            coEvery { folderDao.getFolderByIdAndUser("any", testUserId) } returns null
+
+            val result = repository.getFolderById("any", testUserId)
+
             assertNull(result)
         }
 
     @Test
-    fun `deleteFolder handles missing folder`() =
+    fun `observeFolders emits empty list when dao is empty`() =
         runTest {
-            coEvery { folderDao.getFolderById("id") } returns null
+            coEvery { folderDao.getActiveFoldersByUserId(testUserId) } returns flowOf(emptyList())
 
-            repository.deleteFolder("id")
+            val result = repository.observeFolders(testUserId).first()
 
-            coVerify(exactly = 0) { folderDao.delete(any()) }
+            assertTrue(result.isEmpty())
         }
 
     @Test
-    fun `renameFolder calls dao update`() =
+    fun `updateFolder calls dao update with reset sync flag`() =
         runTest {
-            repository.renameFolder("folder_1", "New Name")
-            coVerify { folderDao.updateName("folder_1", "New Name") }
+            coEvery { folderDao.update(any()) } just Runs
+
+            repository.updateFolder(testFolder)
+
+            coVerify(exactly = 1) {
+                folderDao.update(match { it.id == "1" && !it.isSynced })
+            }
         }
 
     @Test
-    fun `createFolder inserts entity and returns correct id`() =
+    fun `createFolder inserts entity with reset sync flags and returns correct id`() =
         runTest {
-            val folder = NoteFolder(id = "folder_777", name = "Test Folder")
-
+            val folder = NoteFolder(userId = testUserId, id = "folder_777", name = "Test Folder")
             coEvery { folderDao.insert(any()) } just Runs
 
             val resultId = repository.createFolder(folder)
 
-            coVerify { folderDao.insert(any()) }
+            coVerify(exactly = 1) {
+                folderDao.insert(
+                    match {
+                        it.id == "folder_777" && !it.isSynced && !it.isDeleted
+                    },
+                )
+            }
             assertEquals("folder_777", resultId)
-        }
-
-    @Test
-    fun `deleteFolder calls dao delete when folder is found`() =
-        runTest {
-            val folderId = "target_id"
-            val entity = mockk<FolderEntity>(relaxed = true)
-
-            // Возвращаем реальный объект, чтобы зайти внутрь ?.let
-            coEvery { folderDao.getFolderById(folderId) } returns entity
-            coEvery { folderDao.delete(entity) } just Runs
-
-            repository.deleteFolder(folderId)
-
-            // Эта проверка гасит красную строку `folderDao.delete(it)`
-            coVerify(exactly = 1) { folderDao.delete(entity) }
         }
 }

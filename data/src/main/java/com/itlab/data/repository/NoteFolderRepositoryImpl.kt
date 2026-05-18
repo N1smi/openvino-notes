@@ -6,40 +6,54 @@ import com.itlab.domain.model.NoteFolder
 import com.itlab.domain.repository.NoteFolderRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlin.time.Clock
 
 class NoteFolderRepositoryImpl(
     private val folderDao: FolderDao,
     private val mapper: NoteFolderMapper,
 ) : NoteFolderRepository {
     override suspend fun createFolder(folder: NoteFolder): String {
-        folderDao.insert(mapper.toEntity(folder))
+        val entity =
+            mapper.toEntity(folder).copy(
+                isSynced = false,
+                isDeleted = false,
+            )
+        folderDao.insert(entity)
         return folder.id
     }
 
-    override fun observeFolders(): Flow<List<NoteFolder>> =
-        folderDao.getAllFolders().map { entities ->
+    override fun observeFolders(userId: String): Flow<List<NoteFolder>> =
+        folderDao.getActiveFoldersByUserId(userId).map { entities ->
             entities.map { mapper.toDomain(it) }
         }
 
     override suspend fun renameFolder(
         id: String,
+        userId: String,
         name: String,
     ) {
-        folderDao.updateName(id, name)
+        val now = Clock.System.now()
+        folderDao.updateName(id = id, userId = userId, name = name, updatedAt = now)
     }
 
-    override suspend fun deleteFolder(id: String) {
-        folderDao.getFolderById(id)?.let {
-            folderDao.delete(it)
-        }
+    override suspend fun deleteFolder(
+        id: String,
+        userId: String,
+    ) {
+        val now = Clock.System.now()
+        folderDao.softDeleteById(id = id, userId = userId, updatedAt = now)
     }
 
-    override suspend fun getFolderById(id: String): NoteFolder? =
-        folderDao.getFolderById(id)?.let {
+    override suspend fun getFolderById(
+        id: String,
+        userId: String,
+    ): NoteFolder? =
+        folderDao.getFolderByIdAndUser(id, userId)?.let {
             mapper.toDomain(it)
         }
 
     override suspend fun updateFolder(folder: NoteFolder) {
-        folderDao.update(mapper.toEntity(folder))
+        val entity = mapper.toEntity(folder).copy(isSynced = false)
+        folderDao.update(entity)
     }
 }

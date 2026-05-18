@@ -75,7 +75,7 @@ class NoteUseCasesTest {
     private class FakeFolderRepo : NoteFolderRepository {
         private val store = mutableMapOf<String, NoteFolder>()
 
-        override fun observeFolders() = MutableStateFlow(emptyList<NoteFolder>())
+        override fun observeFolders(userId: String) = MutableStateFlow(emptyList<NoteFolder>())
 
         override suspend fun createFolder(folder: NoteFolder): String {
             store[folder.id] = folder
@@ -84,12 +84,19 @@ class NoteUseCasesTest {
 
         override suspend fun renameFolder(
             id: String,
+            userId: String,
             name: String,
         ) = Unit
 
-        override suspend fun deleteFolder(id: String) = Unit
+        override suspend fun deleteFolder(
+            id: String,
+            userId: String,
+        ) = Unit
 
-        override suspend fun getFolderById(id: String): NoteFolder? = store[id]
+        override suspend fun getFolderById(
+            id: String,
+            userId: String,
+        ): NoteFolder? = store[id]
 
         override suspend fun updateFolder(folder: NoteFolder) = Unit
     }
@@ -137,7 +144,7 @@ class NoteUseCasesTest {
             val move = MoveNoteToFolderUseCase(notesRepo, folderRepo, getUserIdUsecase)
             val createNote = CreateNoteUseCase(notesRepo, getUserIdUsecase)
 
-            val folder = NoteFolder(id = "f1", name = "Folder")
+            val folder = NoteFolder(testUserId, id = "f1", name = "Folder")
             folderRepo.createFolder(folder)
 
             val note = Note(id = "n1", title = "Note", userId = testUserId)

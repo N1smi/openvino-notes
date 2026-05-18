@@ -12,6 +12,7 @@ class NoteFolderMapper {
                 createdAt = folder.createdAt,
                 updatedAt = folder.updatedAt,
                 metadata = folder.metadata,
+                userId = folder.userId,
             )
 
         return entityFolder
@@ -25,6 +26,7 @@ class NoteFolderMapper {
                 createdAt = entity.createdAt,
                 updatedAt = entity.updatedAt,
                 metadata = entity.metadata,
+                userId = entity.userId,
             )
 
         return noteFolder

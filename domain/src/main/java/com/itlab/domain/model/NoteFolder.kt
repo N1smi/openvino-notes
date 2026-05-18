@@ -5,6 +5,7 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 
 data class NoteFolder(
+    val userId: String,
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val createdAt: Instant = Clock.System.now(),

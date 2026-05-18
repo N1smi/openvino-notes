@@ -35,14 +35,14 @@ val appModule =
         single { AppSessionPreferences(androidApplication()) }
         factory { ValidateDuplicateNoteTitleUseCase(get(), get()) }
         factory { CreateNoteUseCase(get(), get()) }
-        factory { CreateFolderUseCase(get()) }
+        factory { CreateFolderUseCase(get(), get()) }
         factory { DeleteFolderUseCase(get(), get(), get()) }
         factory { DeleteNoteUseCase(get(), get()) }
         factory { UpdateNoteUseCase(get(), get()) }
-        factory { UpdateFolderUseCase(get()) }
-        factory { GetFolderUseCase(get()) }
+        factory { UpdateFolderUseCase(get(), get()) }
+        factory { GetFolderUseCase(get(), get()) }
         factory { ObserveNotesByFolderUseCase(get(), get()) }
-        factory { ObserveFoldersUseCase(get()) }
+        factory { ObserveFoldersUseCase(get(), get()) }
         factory { MoveNoteToFolderUseCase(get(), get(), get()) }
         factory { ObserveNotesUseCase(get(), get()) }
         factory { GetUserIdUseCase(get()) }
@@ -50,8 +50,8 @@ val appModule =
         factory { SwitchFavoriteUseCase(get(), get()) }
         factory { GetAllFavoritesUseCase(get(), get()) }
         factory { GetNoteUseCase(get(), get()) }
-        factory { UpdateFolderUseCase(get()) }
-        factory { GetFolderUseCase(get()) }
+        factory { UpdateFolderUseCase(get(), get()) }
+        factory { GetFolderUseCase(get(), get()) }
         factory {
             ClearLocalDataOnSignOut(
                 observeNotesUseCase = get(),

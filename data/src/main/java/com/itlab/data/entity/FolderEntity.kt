@@ -7,6 +7,7 @@ import kotlin.time.Instant
 @Entity(tableName = "folders")
 data class FolderEntity(
     @PrimaryKey val id: String,
+    val userId: String,
     val name: String,
     val createdAt: Instant,
     val updatedAt: Instant,

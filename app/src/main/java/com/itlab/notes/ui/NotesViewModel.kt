@@ -65,7 +65,9 @@ class NotesViewModel(
                         .coerceDirectoryNameLength()
                 if (normalized.isNotBlank()) {
                     viewModelScope.launch {
-                        useCases.createFolderUseCase(NoteFolder(name = normalized))
+                        useCases.createFolderUseCase(
+                            NoteFolder(useCases.getUserIdUseCase() ?: "local_user", name = normalized),
+                        )
                     }
                 }
             }

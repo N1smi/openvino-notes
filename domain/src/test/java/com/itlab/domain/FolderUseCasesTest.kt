@@ -31,7 +31,7 @@ class FolderUseCasesTest {
         private val store = mutableMapOf<String, NoteFolder>()
         private val flow = MutableStateFlow<List<NoteFolder>>(emptyList())
 
-        override fun observeFolders() = flow
+        override fun observeFolders(userId: String) = flow
 
         override suspend fun createFolder(folder: NoteFolder): String {
             store[folder.id] = folder
@@ -41,6 +41,7 @@ class FolderUseCasesTest {
 
         override suspend fun renameFolder(
             id: String,
+            userId: String,
             name: String,
         ) {
             val folder = store[id] ?: return
@@ -49,12 +50,18 @@ class FolderUseCasesTest {
             flow.value = store.values.toList()
         }
 
-        override suspend fun deleteFolder(id: String) {
+        override suspend fun deleteFolder(
+            id: String,
+            userId: String,
+        ) {
             store.remove(id)
             flow.value = store.values.toList()
         }
 
-        override suspend fun getFolderById(id: String): NoteFolder? = store[id]
+        override suspend fun getFolderById(
+            id: String,
+            userId: String,
+        ): NoteFolder? = store[id]
 
         override suspend fun updateFolder(folder: NoteFolder) {
             store[folder.id] = folder
@@ -97,10 +104,10 @@ class FolderUseCasesTest {
         runBlocking {
             val repo = FakeFolderRepo()
 
-            val create = CreateFolderUseCase(repo)
-            val get = GetFolderUseCase(repo)
+            val create = CreateFolderUseCase(repo, getUserIdUsecase)
+            val get = GetFolderUseCase(repo, getUserIdUsecase)
 
-            val folder = NoteFolder(name = "Test")
+            val folder = NoteFolder(testUserId, name = "Test")
 
             val id = create(folder).getOrThrow()
 
@@ -114,11 +121,11 @@ class FolderUseCasesTest {
         runBlocking {
             val repo = FakeFolderRepo()
 
-            val create = CreateFolderUseCase(repo)
-            val update = UpdateFolderUseCase(repo)
-            val get = GetFolderUseCase(repo)
+            val create = CreateFolderUseCase(repo, getUserIdUsecase)
+            val update = UpdateFolderUseCase(repo, getUserIdUsecase)
+            val get = GetFolderUseCase(repo, getUserIdUsecase)
 
-            val folder = NoteFolder(name = "Old")
+            val folder = NoteFolder(testUserId, name = "Old")
 
             val id = create(folder).getOrThrow()
 
@@ -136,11 +143,11 @@ class FolderUseCasesTest {
         runBlocking {
             val repo = FakeFolderRepo()
 
-            val create = CreateFolderUseCase(repo)
+            val create = CreateFolderUseCase(repo, getUserIdUsecase)
             val delete = DeleteFolderUseCase(repo, FakeNotesRepo(), getUserIdUsecase)
-            val get = GetFolderUseCase(repo)
+            val get = GetFolderUseCase(repo, getUserIdUsecase)
 
-            val folder = NoteFolder(name = "Test")
+            val folder = NoteFolder(testUserId, name = "Test")
 
             val id = create(folder).getOrThrow()
 
@@ -155,10 +162,10 @@ class FolderUseCasesTest {
     fun observeFolders_emitsData() =
         runBlocking {
             val repo = FakeFolderRepo()
-            val create = CreateFolderUseCase(repo)
-            val observe = ObserveFoldersUseCase(repo)
+            val create = CreateFolderUseCase(repo, getUserIdUsecase)
+            val observe = ObserveFoldersUseCase(repo, getUserIdUsecase)
 
-            create(NoteFolder(name = "A")).getOrThrow()
+            create(NoteFolder(testUserId, name = "A")).getOrThrow()
 
             val list = observe().first()
 
@@ -169,8 +176,8 @@ class FolderUseCasesTest {
     fun createFolder_blankName_returnsFailure() =
         runBlocking {
             val repo = FakeFolderRepo()
-            val create = CreateFolderUseCase(repo)
-            val result = create(NoteFolder(name = "   "))
+            val create = CreateFolderUseCase(repo, getUserIdUsecase)
+            val result = create(NoteFolder(testUserId, name = "   "))
             assertEquals(true, result.isFailure)
             assertEquals("Folder name must not be blank", result.exceptionOrNull()?.message)
         }

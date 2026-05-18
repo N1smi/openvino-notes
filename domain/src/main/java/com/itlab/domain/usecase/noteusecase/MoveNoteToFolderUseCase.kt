@@ -23,7 +23,7 @@ class MoveNoteToFolderUseCase(
 
             requireNotBlank(noteId, "Note id")
             requireNotBlank(folderId, "Folder id")
-            requireNotNull(folderRepo.getFolderById(folderId)) { "Folder not found: $folderId" }
+            requireNotNull(folderRepo.getFolderById(folderId, userId)) { "Folder not found: $folderId" }
             val note =
                 notesRepo.getNoteById(noteId, userId) ?: throw IllegalArgumentException("Note not found: $noteId")
             val updated = note.copy(folderId = folderId, updatedAt = Clock.System.now())

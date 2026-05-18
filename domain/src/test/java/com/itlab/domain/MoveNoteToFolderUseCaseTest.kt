@@ -47,7 +47,7 @@ class MoveNoteToFolderUseCaseTest {
 
             val note = Note(userId = testUserId, id = noteId, folderId = "old_folder", createdAt = now, updatedAt = now)
 
-            coEvery { folderRepo.getFolderById(folderId) } returns mockk() // Папка найдена
+            coEvery { folderRepo.getFolderById(folderId, testUserId) } returns mockk() // Папка найдена
             coEvery { notesRepo.getNoteById(noteId, testUserId) } returns note
             coEvery { notesRepo.updateNote(any()) } returns Unit
 
@@ -61,7 +61,12 @@ class MoveNoteToFolderUseCaseTest {
     fun `invoke should return failure when folder not found`() =
         runBlocking {
             val folderId = "missing_folder"
-            coEvery { folderRepo.getFolderById(folderId) } returns null // Покрываем "Folder not found"
+            coEvery {
+                folderRepo.getFolderById(
+                    folderId,
+                    testUserId,
+                )
+            } returns null // Покрываем "Folder not found"
 
             val result = moveNoteToFolderUseCase(folderId, "some_note")
 
@@ -74,7 +79,7 @@ class MoveNoteToFolderUseCaseTest {
         runBlocking {
             val folderId = "folder_1"
             val noteId = "missing_note"
-            coEvery { folderRepo.getFolderById(folderId) } returns mockk()
+            coEvery { folderRepo.getFolderById(folderId, testUserId) } returns mockk()
             coEvery { notesRepo.getNoteById(noteId, testUserId) } returns null // Покрываем "Note not found"
 
             val result = moveNoteToFolderUseCase(folderId, noteId)

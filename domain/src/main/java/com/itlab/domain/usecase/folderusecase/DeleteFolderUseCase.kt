@@ -27,6 +27,6 @@ class DeleteFolderUseCase(
                 .forEach { note ->
                     notesRepository.deleteNote(note.id, userId)
                 }
-            repo.deleteFolder(id)
+            repo.deleteFolder(id, userId)
         }
 }
