@@ -294,6 +294,111 @@ class SyncManagerImplTest {
             Unit
         }
 
+    @Test
+    fun `pullNotes should download note even if another user has a local note with the same ID`() =
+        runBlocking {
+            val currentUserId = "user_current"
+            val otherUserId = "user_alien"
+            val duplicateNoteId = "shared_note_id"
+            val remoteKey = "users/$currentUserId/notes/$duplicateNoteId"
+
+            every { noteDao.getAllNotesByUserId(currentUserId) } returns flowOf(emptyList())
+
+            val cloudMeta = CloudNoteMetadata(key = remoteKey, updatedAt = now)
+            coEvery { cloudDataSource.listNoteMetadata(currentUserId) } returns Result.Success(listOf(cloudMeta))
+
+            val remoteJson = "{\"id\":\"$duplicateNoteId\"}"
+
+            val alienLocalNote =
+                NoteEntity(
+                    id = duplicateNoteId,
+                    title = "Alien Private Note",
+                    content = "Don't touch",
+                    userId = otherUserId,
+                    isSynced = false,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+
+            every { noteDao.getAllNotesByUserId(otherUserId) } returns flowOf(listOf(alienLocalNote))
+
+            val expectedEntity =
+                NoteEntity(
+                    id = duplicateNoteId,
+                    title = "My Note",
+                    content = "Content",
+                    userId = currentUserId,
+                    isSynced = true,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            coEvery { cloudDataSource.downloadNote(remoteKey) } returns Result.Success(remoteJson)
+            every { jsonConverter.toEntity(remoteJson, currentUserId) } returns expectedEntity
+            coEvery { noteDao.insert(expectedEntity) } just Runs
+
+            syncManager.sync(currentUserId)
+
+            coVerify(exactly = 1) {
+                cloudDataSource.downloadNote(remoteKey)
+                noteDao.insert(expectedEntity)
+            }
+        }
+
+    @Test
+    fun `pullMedia should download media even if another user has a local media with the same ID`() =
+        runBlocking {
+            val currentUserId = "user_current"
+            val otherUserId = "user_alien"
+            val noteId = "note1"
+            val mediaId = "duplicate_media_id"
+            val compositeId = "${noteId}_$mediaId"
+            val cloudKey = "users/$currentUserId/media/$compositeId"
+
+            coEvery { cloudDataSource.listNoteMetadata(currentUserId) } returns Result.Success(emptyList())
+            every { noteDao.getAllNotesByUserId(currentUserId) } returns flowOf(emptyList())
+
+            val alienMedia =
+                com.itlab.data.entity.MediaEntity(
+                    id = mediaId,
+                    noteId = "alien_note_id",
+                    type = "audio",
+                    localPath = "some/path",
+                    remoteUrl = "users/$otherUserId/media/alien_note_id_$mediaId",
+                    mimeType = "audio/mpeg",
+                    size = 500L,
+                    isSynced = true,
+                )
+
+            every { mediaDao.getAllMediaByUserId(currentUserId) } returns flowOf(emptyList())
+            every { mediaDao.getAllMediaByUserId(otherUserId) } returns flowOf(listOf(alienMedia))
+
+            val cloudMediaMeta =
+                com.itlab.domain.cloud.CloudMediaMetadata(
+                    key = cloudKey,
+                    mediaId = compositeId,
+                    mimeType = "image/png",
+                )
+            coEvery { cloudDataSource.listMediaMetadata(currentUserId) } returns Result.Success(listOf(cloudMediaMeta))
+            coEvery { cloudDataSource.downloadMedia(eq(cloudKey), any()) } returns Result.Success(Unit)
+            coEvery { mediaDao.insert(any()) } just Runs
+
+            val tempDir =
+                java.nio.file.Files
+                    .createTempDirectory("test_media_pull")
+                    .toFile()
+            every { context.filesDir } returns tempDir
+
+            syncManager.sync(currentUserId)
+
+            coVerify(exactly = 1) {
+                cloudDataSource.downloadMedia(eq(cloudKey), any())
+                mediaDao.insert(match { it.id == mediaId && it.noteId == noteId })
+            }
+
+            tempDir.deleteRecursively()
+            Unit
+        }
+
     private fun createTestNote(id: String) =
         NoteEntity(
             id = id,

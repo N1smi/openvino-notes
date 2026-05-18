@@ -24,6 +24,15 @@ interface MediaDao {
         """
     SELECT media.* FROM media
     INNER JOIN notes ON media.noteId = notes.id
+    WHERE notes.userId = :userId
+""",
+    )
+    fun getAllMediaByUserId(userId: String): Flow<List<MediaEntity>>
+
+    @Query(
+        """
+    SELECT media.* FROM media
+    INNER JOIN notes ON media.noteId = notes.id
     WHERE media.isSynced = 0 AND notes.userId = :userId
 """,
     )

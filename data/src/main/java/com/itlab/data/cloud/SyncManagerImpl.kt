@@ -122,7 +122,7 @@ class SyncManagerImpl(
                 is Result.Error -> throw metadataResult.exception
             }
 
-        val localNotes = noteDao.getAllNotes().first()
+        val localNotes = noteDao.getAllNotesByUserId(userId).first()
         val localIds = localNotes.map { it.id }.toSet()
 
         val toDownload =
@@ -153,7 +153,7 @@ class SyncManagerImpl(
 
         if (mediaMetadataResult is Result.Success) {
             val remoteMedia = mediaMetadataResult.data
-            val localMedia = mediaDao.getAllMedia().first()
+            val localMedia = mediaDao.getAllMediaByUserId(userId).first()
             val localMediaIds = localMedia.map { it.id }.toSet()
 
             val toDownload =
