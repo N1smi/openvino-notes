@@ -123,9 +123,12 @@ class SyncManagerImpl(
             }
 
         val localNotes = noteDao.getAllNotes().first()
-        val localIds = localNotes.map { it.id }
+        val localIds = localNotes.map { it.id }.toSet()
 
-        val toDownload = remoteMetadata.filter { it.key !in localIds }
+        val toDownload = remoteMetadata.filter { remoteMeta ->
+            val remoteNoteId = remoteMeta.key.substringAfterLast('/')
+            remoteNoteId !in localIds
+        }
 
         for (meta in toDownload) {
             val downloadResult = cloudDataSource.downloadNote(meta.key)
@@ -150,7 +153,7 @@ class SyncManagerImpl(
         if (mediaMetadataResult is Result.Success) {
             val remoteMedia = mediaMetadataResult.data
             val localMedia = mediaDao.getAllMedia().first()
-            val localMediaIds = localMedia.map { it.id }
+            val localMediaIds = localMedia.map { it.id }.toSet()
 
             val toDownload =
                 remoteMedia.filter { meta ->

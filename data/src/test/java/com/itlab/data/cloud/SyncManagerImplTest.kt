@@ -14,10 +14,12 @@ import com.itlab.domain.cloud.SyncState
 import io.mockk.MockKAnnotations
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.just
+import io.mockk.mockk
 import io.mockk.unmockkAll
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -30,6 +32,7 @@ import org.junit.Test
 import timber.log.Timber
 import java.io.IOException
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 class SyncManagerImplTest {
     @MockK
@@ -265,6 +268,29 @@ class SyncManagerImplTest {
             Unit
         }
 
+    @Test
+    fun `pullNotes should correctly extract noteId from full remote path and skip already existing notes`() = runBlocking {
+        val userId = "user_123"
+        val existingNoteId = "note_abc"
+
+        val localNote = mockk<NoteEntity> { every { id } returns existingNoteId }
+        every { noteDao.getAllNotes() } returns flowOf(listOf(localNote))
+
+        val remoteMetadata = listOf(
+            CloudNoteMetadata(
+                key = "users/$userId/notes/$existingNoteId",
+                updatedAt = Instant.fromEpochMilliseconds(1716037200000L)
+            )
+        )
+        coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(remoteMetadata)
+
+        syncManager.pullUpdates(userId)
+
+        coVerify(exactly = 0) {
+            cloudDataSource.downloadNote(any())
+        }
+        Unit
+    }
     private fun createTestNote(id: String) =
         NoteEntity(
             id = id,
