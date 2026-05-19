@@ -229,8 +229,11 @@ class SyncManagerImplTest {
     fun `sync should call pusher and puller in correct order`() =
         runBlocking {
             val mockPusher = mockk<SyncPusher>(relaxed = true)
-            val mockPuller = mockk<SyncPuller>(relaxed = true)
+            val mockPuller = mockk<SyncPuller>()
             val mockCleaner = mockk<SyncCleaner>(relaxed = true)
+
+            coEvery { mockPuller.pullUpdates(userId) } returns Triple(emptySet(), emptySet(), emptySet())
+
             val manager = SyncManagerImpl(mockPusher, mockPuller, mockCleaner)
 
             manager.sync(userId)
@@ -406,5 +409,26 @@ class SyncManagerImplTest {
             coVerify { mediaDao.hardDelete(localMedia) }
 
             assertTrue(!File(localMedia.localPath!!).exists())
+        }
+
+    @Test
+    fun `sync should catch pullException but keep sync successful for WorkManager`() =
+        runBlocking {
+            val mockPusher = mockk<SyncPusher>(relaxed = true)
+            val mockPuller = mockk<SyncPuller>()
+            val mockCleaner = mockk<SyncCleaner>(relaxed = true)
+            val manager = SyncManagerImpl(mockPusher, mockPuller, mockCleaner)
+
+            coEvery { mockPuller.pullUpdates(userId) } throws IOException("No internet connection")
+
+            val result = runCatching { manager.sync(userId) }
+
+            assertTrue(result.isSuccess)
+            assertTrue(manager.syncState.value is SyncState.Error)
+
+            assertEquals(
+                "Pull failed, but changes were pushed successfully",
+                (manager.syncState.value as SyncState.Error).message,
+            )
         }
 }

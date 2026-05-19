@@ -46,9 +46,14 @@ class SyncManagerImpl(
 
         try {
             pusher.pushChanges(userId)
-            puller.pullUpdates(userId)
 
-            _syncState.value = SyncState.Success
+            val pullSuccessful = pullUpdatesAndClean(userId)
+            _syncState.value =
+                if (pullSuccessful) {
+                    SyncState.Success
+                } else {
+                    SyncState.Error("Pull failed, but changes were pushed successfully")
+                }
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
@@ -62,6 +67,20 @@ class SyncManagerImpl(
             throw e
         }
     }
+
+    private suspend fun pullUpdatesAndClean(userId: String): Boolean =
+        try {
+            pullUpdates(userId)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            Timber.e(e, "Network error during pull updates, but push was successful")
+            false
+        } catch (e: SerializationException) {
+            Timber.e(e, "Data parsing error during pull updates, but push was successful")
+            false
+        }
 
     private fun handleError(
         message: String,
