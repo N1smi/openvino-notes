@@ -135,6 +135,7 @@ class NotesRepositoryImplTest {
         runTest {
             val entities = listOf(mockk<NoteEntity>(relaxed = true))
             coEvery { noteDao.getAllNotesByUserId(testUserId) } returns flowOf(entities)
+            coEvery { mediaDao.getAllMediaByUserId(testUserId) } returns flowOf(emptyList())
 
             val result = repository.observeNotes(testUserId).first()
 
@@ -147,6 +148,7 @@ class NotesRepositoryImplTest {
         runTest {
             val folderId = "folder_x"
             coEvery { noteDao.getNotesByFolderAndUser(folderId, testUserId) } returns flowOf(emptyList())
+            coEvery { mediaDao.getAllMediaByUserId(testUserId) } returns flowOf(emptyList())
 
             val result = repository.observeNotesByFolder(folderId, testUserId).first()
 
@@ -234,6 +236,7 @@ class NotesRepositoryImplTest {
             val folderId = "folder_1"
             val flow = MutableStateFlow<List<NoteEntity>>(emptyList())
             coEvery { noteDao.getNotesByFolderAndUser(folderId, testUserId) } returns flow
+            coEvery { mediaDao.getAllMediaByUserId(testUserId) } returns flowOf(emptyList())
 
             val firstResult = repository.observeNotesByFolder(folderId, testUserId).first()
             assertTrue(firstResult.isEmpty())
@@ -252,6 +255,7 @@ class NotesRepositoryImplTest {
         runTest {
             val entity = mockk<NoteEntity>(relaxed = true)
             coEvery { noteDao.getAllNotesByUserId(testUserId) } returns flowOf(listOf(entity))
+            coEvery { mediaDao.getAllMediaByUserId(testUserId) } returns flowOf(emptyList())
 
             val result = repository.observeNotes(testUserId).first()
 
@@ -275,6 +279,7 @@ class NotesRepositoryImplTest {
             val entity = mockk<NoteEntity>(relaxed = true)
 
             coEvery { noteDao.getNoteByIdAndUser(noteId, testUserId) } returns entity
+            coEvery { mediaDao.getMediaForNote(noteId) } returns emptyList()
 
             val result = repository.getNoteById(noteId, testUserId)
 
@@ -299,6 +304,7 @@ class NotesRepositoryImplTest {
 
             coEvery { noteDao.insert(any()) } just Runs
             coEvery { mediaDao.insertAll(any()) } just Runs
+            coEvery { noteDao.getNoteByIdAndUser("note_with_pic", testUserId) } returns mockk(relaxed = true)
 
             repository.updateNote(noteWithMedia)
 
