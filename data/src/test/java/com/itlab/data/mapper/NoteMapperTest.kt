@@ -15,36 +15,61 @@ import kotlin.time.Instant
 class NoteMapperTest {
     private val mapper = NoteMapper()
     private val testUserId = "test-user-id"
-    val testTime = Instant.parse("2026-03-24T12:00:00Z")
+    private val testTime = Instant.parse("2026-03-24T12:00:00Z")
 
     @Test
     fun `toEntities should map all content types and media correctly`() {
-        val note =
-            Note(
-                userId = testUserId,
-                title = "Business",
-                tags = setOf("money", "market"),
-                contentItems =
-                    listOf(
-                        ContentItem.Text(text = "I have money"),
-                        ContentItem.Image(
-                            source = DataSource(localPath = "local/path"),
-                            mimeType = "image/png",
-                        ),
-                        ContentItem.File(
-                            source = DataSource(remoteUrl = "https://cloud.com/doc"),
-                            mimeType = "application/pdf",
-                            name = "doc.pdf",
-                            size = 1024L,
-                        ),
-                        ContentItem.Link(url = "https://google.com"),
-                    ),
-                isFavorite = true,
-                summary = "cars",
-            )
+        val note = createTestNoteWithMixedContent()
 
         val (entity, media) = mapper.toEntities(note)
 
+        // Проверяем поля NoteEntity
+        assertNoteEntityFields(note, entity)
+
+        // Проверяем, что локальные пути корректно очищены в JSON контенте
+        val decodedItems = mapper.deserializeContent(entity.content)
+        val expectedCleanedItems =
+            note.contentItems.map { item ->
+                when (item) {
+                    is ContentItem.Image -> item.copy(source = item.source.copy(localPath = null))
+                    is ContentItem.File -> item.copy(source = item.source.copy(localPath = null))
+                    else -> item
+                }
+            }
+        assertEquals(expectedCleanedItems, decodedItems)
+
+        // Проверяем маппинг сопутствующих медиафайлов
+        assertMediaEntities(note.id, media)
+    }
+
+    private fun createTestNoteWithMixedContent() =
+        Note(
+            userId = testUserId,
+            title = "Business",
+            tags = setOf("money", "market"),
+            contentItems =
+                listOf(
+                    ContentItem.Text(text = "I have money"),
+                    ContentItem.Image(
+                        source = DataSource(localPath = "local/path"),
+                        mimeType = "image/png",
+                    ),
+                    ContentItem.File(
+                        source = DataSource(remoteUrl = "https://cloud.com/doc"),
+                        mimeType = "application/pdf",
+                        name = "doc.pdf",
+                        size = 1024L,
+                    ),
+                    ContentItem.Link(url = "https://google.com"),
+                ),
+            isFavorite = true,
+            summary = "cars",
+        )
+
+    private fun assertNoteEntityFields(
+        note: Note,
+        entity: NoteEntity,
+    ) {
         assertEquals(note.id, entity.id)
         assertEquals(testUserId, entity.userId)
         assertEquals("Business", entity.title)
@@ -54,26 +79,25 @@ class NoteMapperTest {
         assertEquals(note.createdAt, entity.createdAt)
         assertEquals(note.updatedAt, entity.updatedAt)
         assertEquals(note.summary, entity.summary)
-
         assertEquals("[\"money\",\"market\"]", entity.tags)
+    }
 
-        val decodedItems = mapper.deserializeContent((entity.content))
-
-        assertEquals(note.contentItems, decodedItems)
-
+    private fun assertMediaEntities(
+        noteId: String,
+        media: List<com.itlab.data.entity.MediaEntity>,
+    ) {
         assertEquals(2, media.size)
 
         val image = media.find { it.type == "IMAGE" }
-
         assertNotNull(image?.id)
-        assertEquals(note.id, image?.noteId)
+        assertEquals(noteId, image?.noteId)
         assertEquals("local/path", image?.localPath)
         assertEquals(null, image?.remoteUrl)
         assertEquals("image/png", image?.mimeType)
 
         val file = media.find { it.type == "FILE" }
         assertNotNull(file?.id)
-        assertEquals(note.id, file?.noteId)
+        assertEquals(noteId, file?.noteId)
         assertEquals("https://cloud.com/doc", file?.remoteUrl)
         assertEquals(null, file?.localPath)
         assertEquals("application/pdf", file?.mimeType)
@@ -108,11 +132,11 @@ class NoteMapperTest {
                 ContentItem.Text(text = "First item"),
                 ContentItem.Link("https://itlab.com", "IT Lab"),
                 ContentItem.Image(
-                    source = DataSource(localPath = "local/path"),
+                    source = DataSource(localPath = null, remoteUrl = "cloud/path"),
                     mimeType = "image/",
                 ),
                 ContentItem.File(
-                    source = DataSource(remoteUrl = "https://cloud.com/doc"),
+                    source = DataSource(localPath = null, remoteUrl = "https://cloud.com/doc"),
                     mimeType = "application/pdf",
                     name = "doc.pdf",
                     size = 1024L,
@@ -120,7 +144,6 @@ class NoteMapperTest {
             )
 
         val originalTags = setOf("android", "testing")
-
         val json = Json { ignoreUnknownKeys = true }
 
         val entity =
@@ -143,7 +166,6 @@ class NoteMapperTest {
         assertEquals("Test Note", resultNote.title)
         assertEquals("fuid-100", resultNote.folderId)
         assertTrue(resultNote.isFavorite)
-
         assertEquals(originalItems, resultNote.contentItems)
         assertEquals(originalTags, resultNote.tags)
     }

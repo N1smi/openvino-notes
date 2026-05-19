@@ -33,7 +33,8 @@ class NoteMapper(
                 userId = note.userId,
                 title = note.title,
                 folderId = note.folderId,
-                content = serializeContent(note.contentItems),
+                // Важно: сериализуем БЕЗ localPath, чтобы в JSON строки не зашивались абсолютные пути
+                content = serializeContentWithoutLocalPaths(note.contentItems),
                 createdAt = note.createdAt,
                 updatedAt = note.updatedAt,
                 tags = json.encodeToString(note.tags),
@@ -45,13 +46,49 @@ class NoteMapper(
         return noteEntity to mediaEntities
     }
 
-    fun toDomain(entity: NoteEntity): Note {
-        val items =
+    // Перегрузка старого метода для обратной совместимости, если где-то используется без медиа
+    fun toDomain(entity: NoteEntity): Note = toDomain(entity, emptyList())
+
+    // Основной рабочий метод для обогащения контента актуальными путями из БД
+    fun toDomain(
+        entity: NoteEntity,
+        mediaEntities: List<MediaEntity>,
+    ): Note {
+        val rawItems =
             try {
                 deserializeContent(entity.content)
             } catch (e: SerializationException) {
                 Timber.e(e, "Note content mapping failed for entity: ${entity.id}")
                 emptyList()
+            }
+
+        // Обогащаем элементы контента локальными путями и remoteUrl из таблицы MediaEntity
+        val enrichedItems =
+            rawItems.map { item ->
+                val localMedia = mediaEntities.find { it.id == item.id }
+                if (localMedia != null) {
+                    when (item) {
+                        is ContentItem.Image ->
+                            item.copy(
+                                source =
+                                    item.source.copy(
+                                        localPath = localMedia.localPath,
+                                        remoteUrl = localMedia.remoteUrl,
+                                    ),
+                            )
+                        is ContentItem.File ->
+                            item.copy(
+                                source =
+                                    item.source.copy(
+                                        localPath = localMedia.localPath,
+                                        remoteUrl = localMedia.remoteUrl,
+                                    ),
+                            )
+                        else -> item
+                    }
+                } else {
+                    item
+                }
             }
 
         val tags =
@@ -66,7 +103,7 @@ class NoteMapper(
             id = entity.id,
             userId = entity.userId,
             title = entity.title,
-            contentItems = items,
+            contentItems = enrichedItems,
             folderId = entity.folderId,
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt,
@@ -109,6 +146,20 @@ class NoteMapper(
             isSynced = false,
             isDeleted = false,
         )
+    }
+
+    // Сбрасываем localPath в null перед упаковкой контента в JSON для БД/Облака
+    private fun serializeContentWithoutLocalPaths(items: List<ContentItem>): String {
+        val cleanedItems =
+            items.map { item ->
+                when (item) {
+                    is ContentItem.Image -> item.copy(source = item.source.copy(localPath = null))
+                    is ContentItem.File -> item.copy(source = item.source.copy(localPath = null))
+                    else -> item
+                }
+            }
+        val dtos = cleanedItems.map { it.toDto() }
+        return json.encodeToString(dtos)
     }
 
     fun serializeContent(items: List<ContentItem>): String {

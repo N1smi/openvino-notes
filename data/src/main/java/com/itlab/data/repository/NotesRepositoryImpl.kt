@@ -6,6 +6,7 @@ import com.itlab.data.mapper.NoteMapper
 import com.itlab.domain.model.Note
 import com.itlab.domain.repository.NotesRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 class NotesRepositoryImpl(
@@ -14,25 +15,38 @@ class NotesRepositoryImpl(
     private val mapper: NoteMapper,
 ) : NotesRepository {
     override fun observeNotes(userId: String): Flow<List<Note>> =
-        noteDao.getAllNotesByUserId(userId).map { entities ->
-            entities.map { mapper.toDomain(it) }
+        combine(
+            noteDao.getAllNotesByUserId(userId),
+            mediaDao.getAllMediaByUserId(userId), // Предполагаем, что этот метод возвращает Flow<List<MediaEntity>>
+        ) { notes, mediaList ->
+            notes.map { noteEntity ->
+                val associatedMedia = mediaList.filter { it.noteId == noteEntity.id }
+                mapper.toDomain(noteEntity, associatedMedia)
+            }
         }
 
     override fun observeNotesByFolder(
         folderId: String,
         userId: String,
     ): Flow<List<Note>> =
-        noteDao.getNotesByFolderAndUser(folderId, userId).map { entities ->
-            entities.map { mapper.toDomain(it) }
+        combine(
+            noteDao.getNotesByFolderAndUser(folderId, userId),
+            mediaDao.getAllMediaByUserId(userId),
+        ) { notes, mediaList ->
+            notes.map { noteEntity ->
+                val associatedMedia = mediaList.filter { it.noteId == noteEntity.id }
+                mapper.toDomain(noteEntity, associatedMedia)
+            }
         }
 
     override suspend fun getNoteById(
         id: String,
         userId: String,
-    ): Note? =
-        noteDao.getNoteByIdAndUser(id, userId)?.let {
-            mapper.toDomain(it)
-        }
+    ): Note? {
+        val noteEntity = noteDao.getNoteByIdAndUser(id, userId) ?: return null
+        val mediaEntities = mediaDao.getMediaForNote(id) // Если метод suspend и возвращает List<MediaEntity>
+        return mapper.toDomain(noteEntity, mediaEntities)
+    }
 
     override suspend fun createNote(note: Note): String {
         val (notesEntity, mediaEntities) = mapper.toEntities(note)
@@ -64,6 +78,8 @@ class NotesRepositoryImpl(
                 if (alreadyExistingMedia != null) {
                     incoming.copy(
                         remoteUrl = alreadyExistingMedia.remoteUrl ?: incoming.remoteUrl,
+                        // Сохраняем локальный путь, если картинка уже существует на этом устройстве
+                        localPath = alreadyExistingMedia.localPath ?: incoming.localPath,
                         isSynced = alreadyExistingMedia.isSynced,
                     )
                 } else {
@@ -83,7 +99,6 @@ class NotesRepositoryImpl(
         userId: String,
     ) {
         noteDao.softDeleteById(id, userId)
-
         mediaDao.softDeleteByNoteId(id)
     }
 }
