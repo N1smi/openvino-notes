@@ -28,9 +28,8 @@ class WorkManagerSyncScheduler(
                 .setBackoffCriteria(
                     BackoffPolicy.EXPONENTIAL,
                     10,
-                    TimeUnit.SECONDS
-                )
-                .build()
+                    TimeUnit.SECONDS,
+                ).build()
 
         workManager.enqueueUniqueWork(
             "sync_work_$userId",

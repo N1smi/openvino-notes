@@ -22,6 +22,7 @@ class AuthManager(
             ).setIsSmartLockEnabled(false)
             .build()
 
+    @Suppress("TooGenericExceptionCaught")
     suspend fun refreshAuthToken(): Boolean {
         val user = auth.currentUser ?: return false
         return try {
@@ -34,6 +35,7 @@ class AuthManager(
             false
         }
     }
+
     fun getCurrentUserId(): String? = auth.currentUser?.uid
 
     suspend fun signOut(context: Context) {
