@@ -14,7 +14,7 @@ class SyncWorker(
     private val syncManager: SyncManager,
     private val authManager: AuthManager,
 ) : CoroutineWorker(context, params) {
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "ReturnCount")
     override suspend fun doWork(): Result {
         val userId =
             inputData.getString("USER_ID")
@@ -23,6 +23,13 @@ class SyncWorker(
                     Timber.e("Sync failed: User is not authorized")
                     return Result.failure()
                 }
+
+        val isTokenValid = authManager.refreshAuthToken()
+        if (!isTokenValid) {
+            Timber.w("Sync deferred: Firebase token is temporary unavailable. Retrying...")
+            return Result.retry()
+        }
+
         return try {
             Timber.d("Starting sync for user: $userId")
             syncManager.sync(userId)
@@ -33,6 +40,9 @@ class SyncWorker(
             throw e
         } catch (e: java.io.IOException) {
             Timber.e(e, "Sync retryable error: %s", e.message)
+            Result.retry()
+        } catch (e: com.google.firebase.FirebaseException) {
+            Timber.e(e, "Sync retryable Firebase/Storage error: %s", e.message)
             Result.retry()
         } catch (e: Exception) {
             Timber.e(e, "Sync fatal error: %s", e.message)
