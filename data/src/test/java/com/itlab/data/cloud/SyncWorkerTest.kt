@@ -22,7 +22,6 @@ import org.robolectric.annotation.Config
 import timber.log.Timber
 import java.io.IOException
 
-// Используем Robolectric, чтобы предоставить воркеру реальный Context
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class SyncWorkerTest {
@@ -59,9 +58,10 @@ class SyncWorkerTest {
         runBlocking {
             val userId = "user_1"
             every { authManager.getCurrentUserId() } returns userId
+            // ФИКС: Мокаем успешное обновление токена
+            coEvery { authManager.refreshAuthToken() } returns true
             coEvery { syncManager.sync(userId) } just Runs
 
-            // Создаем воркер через официальный билдер
             val worker =
                 TestListenableWorkerBuilder<SyncWorker>(context)
                     .setWorkerFactory(
@@ -101,12 +101,67 @@ class SyncWorkerTest {
             assertEquals(Result.failure(), result)
         }
 
+    // НОВЫЙ ТЕСТ: Проверяем, что если токен временно недоступен, воркер уходит в RETRY
+    @Test
+    fun `doWork should return retry when auth token refresh fails`() =
+        runBlocking {
+            val userId = "user_1"
+            every { authManager.getCurrentUserId() } returns userId
+            coEvery { authManager.refreshAuthToken() } returns false
+
+            val worker =
+                TestListenableWorkerBuilder<SyncWorker>(context)
+                    .setWorkerFactory(
+                        object : androidx.work.WorkerFactory() {
+                            override fun createWorker(
+                                appContext: Context,
+                                workerClassName: String,
+                                workerParameters: androidx.work.WorkerParameters,
+                            ) = SyncWorker(appContext, workerParameters, syncManager, authManager)
+                        },
+                    ).build()
+
+            val result = worker.doWork()
+
+            assertEquals(Result.retry(), result)
+        }
+
     @Test
     fun `doWork should return retry when IOException occurs`() =
         runBlocking {
             val userId = "user_1"
             every { authManager.getCurrentUserId() } returns userId
+            // ФИКС: Токен валидный, но дальше падает сеть
+            coEvery { authManager.refreshAuthToken() } returns true
             coEvery { syncManager.sync(userId) } throws IOException("No network")
+
+            val worker =
+                TestListenableWorkerBuilder<SyncWorker>(context)
+                    .setWorkerFactory(
+                        object : androidx.work.WorkerFactory() {
+                            override fun createWorker(
+                                appContext: Context,
+                                workerClassName: String,
+                                workerParameters: androidx.work.WorkerParameters,
+                            ) = SyncWorker(appContext, workerParameters, syncManager, authManager)
+                        },
+                    ).build()
+
+            val result = worker.doWork()
+
+            assertEquals(Result.retry(), result)
+        }
+
+    @Test
+    fun `doWork should return retry when FirebaseException occurs`() =
+        runBlocking {
+            val userId = "user_1"
+            every { authManager.getCurrentUserId() } returns userId
+            coEvery { authManager.refreshAuthToken() } returns true
+
+            // Используем реальный инстанс FirebaseNetworkException вместо mockk
+            val firebaseException = com.google.firebase.FirebaseNetworkException("StorageException: 403 Forbidden")
+            coEvery { syncManager.sync(userId) } throws firebaseException
 
             val worker =
                 TestListenableWorkerBuilder<SyncWorker>(context)
@@ -130,6 +185,8 @@ class SyncWorkerTest {
         runBlocking {
             val userId = "user_1"
             every { authManager.getCurrentUserId() } returns userId
+            // ФИКС: Токен валидный, но дальше летит критическая ошибка
+            coEvery { authManager.refreshAuthToken() } returns true
             coEvery { syncManager.sync(userId) } throws RuntimeException("Fatal")
 
             val worker =
