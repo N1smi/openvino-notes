@@ -24,7 +24,7 @@ class WorkManagerSyncSchedulerTest {
         every {
             workManager.enqueueUniqueWork(
                 eq(expectedWorkName),
-                eq(ExistingWorkPolicy.REPLACE),
+                eq(ExistingWorkPolicy.KEEP),
                 capture(workRequestSlot),
             )
         } returns mockk(relaxed = true)
@@ -34,7 +34,7 @@ class WorkManagerSyncSchedulerTest {
         verify(exactly = 1) {
             workManager.enqueueUniqueWork(
                 expectedWorkName,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 any<OneTimeWorkRequest>(),
             )
         }

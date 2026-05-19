@@ -33,7 +33,7 @@ class WorkManagerSyncScheduler(
 
         workManager.enqueueUniqueWork(
             "sync_work_$userId",
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             syncRequest,
         )
     }
