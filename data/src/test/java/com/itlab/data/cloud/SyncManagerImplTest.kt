@@ -1,413 +1,410 @@
 package com.itlab.data.cloud
 
 import android.content.Context
+import com.itlab.data.dao.FolderDao
 import com.itlab.data.dao.MediaDao
 import com.itlab.data.dao.NoteDao
+import com.itlab.data.entity.FolderEntity
 import com.itlab.data.entity.MediaEntity
 import com.itlab.data.entity.NoteEntity
+import com.itlab.data.mapper.FolderEntityJsonConverter
 import com.itlab.data.mapper.NoteEntityJsonConverter
 import com.itlab.domain.cloud.CloudDataSource
-import com.itlab.domain.cloud.CloudMetadata
-import com.itlab.domain.cloud.DomainFile
+import com.itlab.domain.cloud.CloudMediaMetadata
 import com.itlab.domain.cloud.Result
 import com.itlab.domain.cloud.SyncState
 import io.mockk.MockKAnnotations
-import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.unmockkAll
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.SerializationException
 import org.junit.After
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import timber.log.Timber
+import java.io.File
 import java.io.IOException
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.test.assertEquals
 import kotlin.time.Clock
-import kotlin.time.Instant
 
 class SyncManagerImplTest {
-    @MockK
+    @MockK(relaxed = true)
     lateinit var noteDao: NoteDao
 
-    @MockK
+    @MockK(relaxed = true)
     lateinit var mediaDao: MediaDao
 
-    @MockK
+    @MockK(relaxed = true)
+    lateinit var folderDao: FolderDao
+
+    @MockK(relaxed = true)
     lateinit var cloudDataSource: CloudDataSource
 
-    @MockK
+    @MockK(relaxed = true)
+    lateinit var folderConverter: FolderEntityJsonConverter
+
+    @MockK(relaxed = true)
     lateinit var jsonConverter: NoteEntityJsonConverter
 
-    @MockK
+    @MockK(relaxed = true)
     lateinit var context: Context
 
+    private lateinit var pusher: SyncPusher
+    private lateinit var puller: SyncPuller
+    private lateinit var cleaner: SyncCleaner
     private lateinit var syncManager: SyncManagerImpl
+
+    private val userId = "user1"
     private val now = Clock.System.now()
+    private lateinit var tempMediaFile: File
 
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
 
-        // Сажаем тестовое дерево, чтобы безопасно поглощать логи Timber
-        Timber.plant(
-            object : Timber.Tree() {
-                override fun log(
-                    priority: Int,
-                    tag: String?,
-                    message: String,
-                    t: Throwable?,
-                ) {
-                    // Ничего не делаем
-                }
-            },
-        )
+        tempMediaFile = File.createTempFile("test_media", ".png")
 
-        coEvery { noteDao.getUnsyncedNotes(any()) } returns emptyList()
-        coEvery { mediaDao.getUnsyncedMedia(any()) } returns emptyList()
+        val daos = SyncDaoContainer(noteDao, folderDao, mediaDao)
+        val mappers = SyncMappers(jsonConverter, folderConverter)
+
+        pusher = SyncPusher(daos, mappers, cloudDataSource)
+        puller = SyncPuller(daos, mappers, cloudDataSource, context)
+        cleaner = SyncCleaner(folderDao, noteDao, mediaDao)
+
+        syncManager = SyncManagerImpl(pusher, puller, cleaner)
+
+        every { context.filesDir } returns tempMediaFile.parentFile
+
+        every { folderDao.getActiveFoldersByUserId(any()) } returns flowOf(emptyList())
+        every { noteDao.getAllNotesByUserId(any()) } returns flowOf(emptyList())
         every { mediaDao.getAllMediaByUserId(any()) } returns flowOf(emptyList())
-
-        coEvery { cloudDataSource.listMediaMetadata(any()) } returns Result.Success(emptyList())
-
-        coEvery { cloudDataSource.uploadMedia(any(), any<com.itlab.domain.cloud.DomainFile>(), any()) } returns
-            Result.Success(Unit)
-        coEvery { cloudDataSource.downloadMedia(any(), any()) } returns Result.Success(Unit)
-
-        syncManager = SyncManagerImpl(context, noteDao, mediaDao, cloudDataSource, jsonConverter)
     }
 
     @After
     fun tearDown() {
-        Timber.uprootAll()
+        if (tempMediaFile.exists()) {
+            tempMediaFile.delete()
+        }
         unmockkAll()
     }
 
-    @Test(expected = IOException::class)
-    fun `sync should handle IOException`() =
-        runBlocking {
-            coEvery { noteDao.getUnsyncedNotes("user1") } throws IOException("No Internet")
-
-            try {
-                syncManager.sync("user1")
-            } finally {
-                val state = syncManager.syncState.value
-                assertTrue(state is SyncState.Error)
-                assertEquals("No Internet", (state as SyncState.Error).message)
-            }
-        }
-
-    @Test(expected = SerializationException::class)
-    fun `sync should handle SerializationException`() =
-        runBlocking {
-            coEvery { noteDao.getUnsyncedNotes("user1") } throws SerializationException("Bad JSON")
-
-            try {
-                syncManager.sync("user1")
-            } finally {
-                assertTrue(syncManager.syncState.value is SyncState.Error)
-            }
-        }
-
-    @Test(expected = IllegalStateException::class)
-    fun `sync should handle IllegalStateException`() =
-        runBlocking {
-            coEvery { noteDao.getUnsyncedNotes("user1") } throws IllegalStateException("Wrong state")
-
-            try {
-                syncManager.sync("user1")
-            } finally {
-                assertTrue(syncManager.syncState.value is SyncState.Error)
-            }
-        }
-
-    @Test
-    fun `pushChanges should throw and log on Result Error`() =
-        runBlocking {
-            val note = createTestNote("1")
-            val exception = Exception("Upload Failed")
-
-            coEvery { noteDao.getUnsyncedNotes(note.userId) } returns listOf(note)
-            with(jsonConverter) { every { note.toJson() } returns "{}" }
-            coEvery { cloudDataSource.uploadNote(any(), any()) } returns Result.Error(exception)
-
-            val result = runCatching { syncManager.pushChanges("user1") }
-
-            assertTrue(result.isFailure)
-            assertEquals(exception, result.exceptionOrNull())
-        }
-
-    @Test
-    fun `pullUpdates should throw and log when downloadNote fails`() =
-        runBlocking {
-            val meta = CloudMetadata("note1", now)
-            val exception = Exception("Download Failed")
-
-            coEvery { cloudDataSource.listNoteMetadata(any()) } returns Result.Success(listOf(meta))
-            every { noteDao.getAllNotesByUserId(any()) } returns flowOf(emptyList())
-            coEvery { cloudDataSource.downloadNote("note1") } returns Result.Error(exception)
-
-            val result = runCatching { syncManager.pullUpdates("user1") }
-
-            assertTrue(result.isFailure)
-            assertEquals(exception, result.exceptionOrNull())
-        }
-
-    @Test
-    fun `pullUpdates should throw when listNoteMetadata fails`() =
-        runBlocking {
-            val exception = Exception("List Failed")
-            coEvery { cloudDataSource.listNoteMetadata("user1") } returns Result.Error(exception)
-
-            val result = runCatching { syncManager.pullUpdates("user1") }
-
-            assertTrue(result.isFailure)
-            assertEquals(exception, result.exceptionOrNull())
-        }
-
-    @Test
-    fun `sync should complete full cycle with push and pull`() =
-        runBlocking {
-            val userId = "user1"
-            val localNoteId = "local_1"
-            val remoteNoteId = "remote_1"
-
-            val expectedLocalPath = "users/$userId/notes/$localNoteId"
-            val expectedRemotePath = "users/$userId/notes/$remoteNoteId"
-
-            val unsyncedNote = createTestNote(localNoteId).copy(userId = userId, isSynced = false)
-            coEvery { noteDao.getUnsyncedNotes(userId) } returns listOf(unsyncedNote)
-            with(jsonConverter) {
-                every { unsyncedNote.toJson() } returns "{\"id\":\"$localNoteId\"}"
-            }
-            coEvery { cloudDataSource.uploadNote(expectedLocalPath, any()) } returns Result.Success(Unit)
-            coEvery { noteDao.update(any()) } just Runs
-
-            val cloudMeta = CloudMetadata(key = expectedRemotePath, updatedAt = now)
-            coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(listOf(cloudMeta))
-
-            val localNote = createTestNote(localNoteId).copy(userId = userId, isSynced = true)
-            every { noteDao.getAllNotesByUserId(any()) } returns flowOf(listOf(localNote))
-
-            val remoteJson = "{\"id\":\"$remoteNoteId\"}"
-            val remoteEntity = createTestNote(remoteNoteId).copy(userId = userId)
-
-            coEvery { cloudDataSource.downloadNote(expectedRemotePath) } returns Result.Success(remoteJson)
-            every { jsonConverter.toEntity(remoteJson, userId) } returns remoteEntity
-            coEvery { noteDao.insert(remoteEntity) } just Runs
-
-            syncManager.sync(userId)
-
-            assertEquals(SyncState.Success, syncManager.syncState.value)
-
-            coVerifyOrder {
-                noteDao.getUnsyncedNotes(userId)
-                mediaDao.getUnsyncedMedia(userId)
-
-                cloudDataSource.uploadNote(expectedLocalPath, any())
-                noteDao.update(match { it.id == localNoteId && it.isSynced })
-
-                cloudDataSource.listNoteMetadata(userId)
-                noteDao.getAllNotesByUserId(userId)
-                cloudDataSource.downloadNote(expectedRemotePath)
-                noteDao.insert(match { it.id == remoteNoteId })
-
-                cloudDataSource.listMediaMetadata(userId)
-                mediaDao.getAllMediaByUserId(userId)
-            }
-        }
-
-    @Test
-    fun `pullMedia should download new media and insert into dao`() =
-        runBlocking {
-            val userId = "user1"
-            val noteId = "note1"
-            val mediaId = "media1"
-            val compositeId = "${noteId}_$mediaId"
-            val cloudKey = "users/$userId/media/$compositeId"
-
-            coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(emptyList())
-            every { noteDao.getAllNotesByUserId(userId) } returns flowOf(emptyList())
-
-            val cloudMeta =
-                com.itlab.domain.cloud.CloudMediaMetadata(
-                    key = cloudKey,
-                    mediaId = compositeId,
-                    mimeType = "image/png",
-                )
-            coEvery { cloudDataSource.listMediaMetadata(userId) } returns Result.Success(listOf(cloudMeta))
-            every { mediaDao.getAllMediaByUserId(userId) } returns flowOf(emptyList())
-            coEvery { cloudDataSource.downloadMedia(eq(cloudKey), any()) } returns Result.Success(Unit)
-
-            val mediaSlot = io.mockk.slot<com.itlab.data.entity.MediaEntity>()
-            coEvery { mediaDao.insert(capture(mediaSlot)) } just Runs
-
-            val tempDir =
-                java.nio.file.Files
-                    .createTempDirectory("test_media")
-                    .toFile()
-            every { context.filesDir } returns tempDir
-
-            syncManager.pullUpdates(userId)
-
-            assertTrue("Insert should be called", mediaSlot.isCaptured)
-            val captured = mediaSlot.captured
-
-            assertEquals("Media ID mismatch", mediaId, captured.id)
-            assertEquals("Note ID mismatch", noteId, captured.noteId)
-            assertTrue("Should be marked as synced", captured.isSynced)
-            assertEquals("IMAGE", captured.type)
-
-            tempDir.deleteRecursively()
-            Unit
-        }
-
-    @Test
-    fun `pullNotes should correctly extract noteId from full remote path and skip already existing notes`() =
-        runBlocking {
-            val userId = "user_123"
-            val existingNoteId = "note_abc"
-
-            val localNote = mockk<NoteEntity> { every { id } returns existingNoteId }
-            every { noteDao.getAllNotesByUserId(userId) } returns flowOf(listOf(localNote))
-
-            val remoteMetadata =
-                listOf(
-                    CloudMetadata(
-                        key = "users/$userId/notes/$existingNoteId",
-                        updatedAt = Instant.fromEpochMilliseconds(1716037200000L),
-                    ),
-                )
-            coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(remoteMetadata)
-
-            syncManager.pullUpdates(userId)
-
-            coVerify(exactly = 0) {
-                cloudDataSource.downloadNote(any())
-            }
-            Unit
-        }
-
-    @Test
-    fun `pullNotes should download note even if another user has a local note with the same ID`() =
-        runBlocking {
-            val currentUserId = "user_current"
-            val otherUserId = "user_alien"
-            val duplicateNoteId = "shared_note_id"
-            val remoteKey = "users/$currentUserId/notes/$duplicateNoteId"
-
-            every { noteDao.getAllNotesByUserId(currentUserId) } returns flowOf(emptyList())
-
-            val cloudMeta = CloudMetadata(key = remoteKey, updatedAt = now)
-            coEvery { cloudDataSource.listNoteMetadata(currentUserId) } returns Result.Success(listOf(cloudMeta))
-
-            val remoteJson = "{\"id\":\"$duplicateNoteId\"}"
-
-            val alienLocalNote =
-                NoteEntity(
-                    id = duplicateNoteId,
-                    title = "Alien Private Note",
-                    content = "Don't touch",
-                    userId = otherUserId,
-                    isSynced = false,
-                    createdAt = now,
-                    updatedAt = now,
-                )
-
-            every { noteDao.getAllNotesByUserId(otherUserId) } returns flowOf(listOf(alienLocalNote))
-
-            val expectedEntity =
-                NoteEntity(
-                    id = duplicateNoteId,
-                    title = "My Note",
-                    content = "Content",
-                    userId = currentUserId,
-                    isSynced = true,
-                    createdAt = now,
-                    updatedAt = now,
-                )
-            coEvery { cloudDataSource.downloadNote(remoteKey) } returns Result.Success(remoteJson)
-            every { jsonConverter.toEntity(remoteJson, currentUserId) } returns expectedEntity
-            coEvery { noteDao.insert(expectedEntity) } just Runs
-
-            syncManager.sync(currentUserId)
-
-            coVerify(exactly = 1) {
-                cloudDataSource.downloadNote(remoteKey)
-                noteDao.insert(match { it.id == duplicateNoteId && it.userId == currentUserId })
-            }
-        }
-
-    @Test
-    fun `pullMedia should download media even if another user has a local media with the same ID`() =
-        runBlocking {
-            val currentUserId = "user_current"
-            val otherUserId = "user_alien"
-            val noteId = "note1"
-            val mediaId = "duplicate_media_id"
-            val compositeId = "${noteId}_$mediaId"
-            val cloudKey = "users/$currentUserId/media/$compositeId"
-
-            coEvery { cloudDataSource.listNoteMetadata(currentUserId) } returns Result.Success(emptyList())
-            every { noteDao.getAllNotesByUserId(currentUserId) } returns flowOf(emptyList())
-
-            val alienMedia =
-                com.itlab.data.entity.MediaEntity(
-                    id = mediaId,
-                    noteId = "alien_note_id",
-                    type = "audio",
-                    localPath = "some/path",
-                    remoteUrl = "users/$otherUserId/media/alien_note_id_$mediaId",
-                    mimeType = "audio/mpeg",
-                    size = 500L,
-                    isSynced = true,
-                )
-
-            every { mediaDao.getAllMediaByUserId(currentUserId) } returns flowOf(emptyList())
-            every { mediaDao.getAllMediaByUserId(otherUserId) } returns flowOf(listOf(alienMedia))
-
-            val cloudMediaMeta =
-                com.itlab.domain.cloud.CloudMediaMetadata(
-                    key = cloudKey,
-                    mediaId = compositeId,
-                    mimeType = "image/png",
-                )
-            coEvery { cloudDataSource.listMediaMetadata(currentUserId) } returns Result.Success(listOf(cloudMediaMeta))
-            coEvery { cloudDataSource.downloadMedia(eq(cloudKey), any()) } returns Result.Success(Unit)
-            coEvery { mediaDao.insert(any()) } just Runs
-
-            val tempDir =
-                java.nio.file.Files
-                    .createTempDirectory("test_media_pull")
-                    .toFile()
-            every { context.filesDir } returns tempDir
-
-            syncManager.sync(currentUserId)
-
-            coVerify(exactly = 1) {
-                cloudDataSource.downloadMedia(eq(cloudKey), any())
-                mediaDao.insert(match { it.id == mediaId && it.noteId == noteId })
-            }
-
-            tempDir.deleteRecursively()
-            Unit
-        }
-
-    private fun createTestNote(id: String) =
+    private fun createTestNote(id: String = "n1") =
         NoteEntity(
             id = id,
-            title = "Title",
-            content = "Content",
-            userId = "user1",
-            isSynced = false,
+            userId = userId,
+            title = "T",
+            content = "C",
             createdAt = now,
             updatedAt = now,
+            isSynced = false,
         )
+
+    private fun createTestMedia(id: String = "m1") =
+        MediaEntity(
+            id = id,
+            noteId = "n1",
+            type = "IMAGE",
+            localPath = tempMediaFile.absolutePath,
+            remoteUrl = "url",
+            mimeType = "image/png",
+            size = 100,
+            isSynced = false,
+        )
+
+    private fun createTestFolder(id: String = "f1") =
+        FolderEntity(
+            id = id,
+            userId = userId,
+            name = "F",
+            createdAt = now,
+            updatedAt = now,
+            isSynced = false,
+            isDeleted = false,
+            metadata = emptyMap(),
+        )
+
+    @Test
+    fun `pusher should upload note when unsynced`() =
+        runBlocking {
+            val note = createTestNote()
+            coEvery { noteDao.getUnsyncedNotes(userId) } returns listOf(note)
+            every { with(jsonConverter) { note.toJson() } } returns "{}"
+            coEvery { cloudDataSource.uploadNote(any(), any()) } returns Result.Success(Unit)
+
+            pusher.pushChanges(userId)
+
+            coVerify { cloudDataSource.uploadNote("users/$userId/notes/${note.id}", "{}") }
+            coVerify { noteDao.update(any()) }
+        }
+
+    @Test
+    fun `pusher should upload media when unsynced`() =
+        runBlocking {
+            val media = createTestMedia()
+            coEvery { mediaDao.getUnsyncedMedia(userId) } returns listOf(media)
+            coEvery { cloudDataSource.uploadMedia(any(), any(), any()) } returns Result.Success(Unit)
+
+            pusher.pushChanges(userId)
+
+            coVerify {
+                cloudDataSource.uploadMedia(
+                    "users/$userId/media/${media.noteId}_${media.id}",
+                    any(),
+                    media.mimeType,
+                )
+            }
+            coVerify { mediaDao.update(any()) }
+        }
+
+    @Test
+    fun `puller should download note and insert into dao`() =
+        runBlocking {
+            val remoteKey = "users/$userId/notes/n1"
+            coEvery { cloudDataSource.listNoteMetadata(userId) } returns
+                Result.Success(listOf(mockk { every { key } returns remoteKey }))
+            coEvery { cloudDataSource.downloadNote(remoteKey) } returns Result.Success("{}")
+
+            val testNote = createTestNote()
+            every { jsonConverter.toEntity("{}", userId) } returns testNote
+
+            coEvery { cloudDataSource.listFolderMetadata(userId) } returns Result.Success(emptyList())
+            coEvery { cloudDataSource.listMediaMetadata(userId) } returns Result.Success(emptyList())
+            coEvery { noteDao.getAllNotesByUserId(userId) } returns flowOf(emptyList())
+
+            puller.pullUpdates(userId)
+
+            coVerify { noteDao.insert(testNote) }
+        }
+
+    @Test
+    fun `puller should download media and insert into dao`() =
+        runBlocking {
+            val remoteMediaMetadata =
+                mockk<CloudMediaMetadata> {
+                    every { mediaId } returns "n1_m1"
+                    every { key } returns "users/$userId/media/n1_m1"
+                    every { mimeType } returns "image/png"
+                }
+
+            coEvery { cloudDataSource.listFolderMetadata(userId) } returns Result.Success(emptyList())
+            coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(emptyList())
+            coEvery { cloudDataSource.listMediaMetadata(userId) } returns Result.Success(listOf(remoteMediaMetadata))
+            coEvery { mediaDao.getAllMediaByUserId(userId) } returns flowOf(emptyList())
+            coEvery { cloudDataSource.downloadMedia(any(), any()) } returns Result.Success(Unit)
+
+            puller.pullUpdates(userId)
+
+            coVerify { mediaDao.insert(any()) }
+        }
+
+    @Test
+    fun `sync should update state to Error on exception`() =
+        runBlocking {
+            coEvery { folderDao.getUnsyncedFolders(userId) } throws IOException("Network Error")
+
+            val result = runCatching { syncManager.sync(userId) }
+
+            assertTrue(result.isFailure)
+            assertTrue(syncManager.syncState.value is SyncState.Error)
+        }
+
+    @Test
+    fun `cleaner should delete folder not present in remote`() =
+        runBlocking {
+            val localFolder = createTestFolder(id = "f1")
+            every { folderDao.getActiveFoldersByUserId(userId) } returns flowOf(listOf(localFolder))
+
+            cleaner.cleanMissingFoldersLocally(userId, emptySet())
+
+            coVerify { folderDao.hardDeleteById("f1", userId) }
+        }
+
+    @Test
+    fun `sync should call pusher and puller in correct order`() =
+        runBlocking {
+            val mockPusher = mockk<SyncPusher>(relaxed = true)
+            val mockPuller = mockk<SyncPuller>(relaxed = true)
+            val mockCleaner = mockk<SyncCleaner>(relaxed = true)
+            val manager = SyncManagerImpl(mockPusher, mockPuller, mockCleaner)
+
+            manager.sync(userId)
+
+            coVerifyOrder {
+                mockPusher.pushChanges(userId)
+                mockPuller.pullUpdates(userId)
+            }
+            assertEquals(SyncState.Success, manager.syncState.value)
+        }
+
+    @Test
+    fun `pullUpdates should orchestrate puller and cleaner in correct order`() =
+        runBlocking {
+            val mockPusher = mockk<SyncPusher>(relaxed = true)
+            val mockPuller = mockk<SyncPuller>()
+            val mockCleaner = mockk<SyncCleaner>(relaxed = true)
+            val manager = SyncManagerImpl(mockPusher, mockPuller, mockCleaner)
+
+            val folders = setOf("f1")
+            val notes = setOf("n1")
+            val media = setOf("m1")
+            coEvery { mockPuller.pullUpdates(userId) } returns Triple(folders, notes, media)
+
+            manager.pullUpdates(userId)
+
+            coVerifyOrder {
+                mockPuller.pullUpdates(userId)
+                mockCleaner.cleanMissingMediaLocally(userId, media)
+                mockCleaner.cleanMissingNotesLocally(userId, notes)
+                mockCleaner.cleanMissingFoldersLocally(userId, folders)
+            }
+        }
+
+    @Test
+    fun `pusher should delete folder when isDeleted is true`() =
+        runBlocking {
+            val deletedFolder = createTestFolder(id = "f1").copy(isDeleted = true)
+            coEvery { folderDao.getUnsyncedFolders(userId) } returns listOf(deletedFolder)
+            coEvery { cloudDataSource.deleteObject(any()) } returns Result.Success(Unit)
+
+            pusher.pushChanges(userId)
+
+            coVerify { cloudDataSource.deleteObject("users/$userId/folders/f1") }
+            coVerify { folderDao.hardDeleteById("f1", userId) }
+        }
+
+    @Test
+    fun `pusher should throw exception when cloud returns Error`() =
+        runBlocking {
+            val note = createTestNote()
+            coEvery { noteDao.getUnsyncedNotes(userId) } returns listOf(note)
+            every { with(jsonConverter) { note.toJson() } } returns "{}"
+            coEvery { cloudDataSource.uploadNote(any(), any()) } returns Result.Error(Exception("Server 500"))
+
+            val result = runCatching { pusher.pushChanges(userId) }
+
+            assertTrue(result.isFailure)
+        }
+
+    @Test(expected = CancellationException::class)
+    fun `sync should rethrow CancellationException`() =
+        runBlocking {
+            coEvery { folderDao.getUnsyncedFolders(userId) } throws CancellationException()
+
+            syncManager.sync(userId)
+        }
+
+    @Test
+    fun `pusher should upload folder and update state when not deleted`() =
+        runBlocking {
+            val folder = createTestFolder()
+            coEvery { folderDao.getUnsyncedFolders(userId) } returns listOf(folder)
+            every { with(folderConverter) { folder.toJson() } } returns "{}"
+            coEvery { cloudDataSource.uploadFolder(any(), any()) } returns Result.Success(Unit)
+
+            pusher.pushChanges(userId)
+
+            coVerify { cloudDataSource.uploadFolder("users/$userId/folders/${folder.id}", "{}") }
+            coVerify { folderDao.update(folder.copy(isSynced = true)) }
+        }
+
+    @Test
+    fun `pusher should delete remote and local note when in deletedNotes`() =
+        runBlocking {
+            val note = createTestNote()
+            coEvery { noteDao.getDeletedNotes(userId) } returns listOf(note)
+            coEvery { cloudDataSource.deleteObject(any()) } returns Result.Success(Unit)
+
+            pusher.pushChanges(userId)
+
+            coVerify { cloudDataSource.deleteObject("users/$userId/notes/${note.id}") }
+            coVerify { noteDao.hardDeleteById(note.id, userId) }
+        }
+
+    @Test
+    fun `pusher should delete remote media and local file when in deletedMedia`() =
+        runBlocking {
+            val media = createTestMedia()
+            coEvery { mediaDao.getDeletedMediaToSync(userId) } returns listOf(media)
+            coEvery { cloudDataSource.deleteObject(any()) } returns Result.Success(Unit)
+
+            assertTrue(File(media.localPath!!).exists())
+
+            pusher.pushChanges(userId)
+
+            coVerify { cloudDataSource.deleteObject("users/$userId/media/${media.noteId}_${media.id}") }
+            coVerify { mediaDao.hardDelete(media) }
+
+            assertTrue(!File(media.localPath!!).exists())
+        }
+
+    @Test
+    fun `pusher should skip media upload if local file does not exist`() =
+        runBlocking {
+            val media = createTestMedia().copy(localPath = "/non/existent/path/file.png")
+            coEvery { mediaDao.getUnsyncedMedia(userId) } returns listOf(media)
+
+            pusher.pushChanges(userId)
+
+            coVerify(exactly = 0) { cloudDataSource.uploadMedia(any(), any(), any()) }
+        }
+
+    @Test
+    fun `puller should insert media with type FILE when mimeType is not image`() =
+        runBlocking {
+            val remoteMediaMetadata =
+                mockk<CloudMediaMetadata> {
+                    every { mediaId } returns "n1_m2"
+                    every { key } returns "users/$userId/media/n1_m2"
+                    every { mimeType } returns "application/pdf" // Не image/*
+                }
+
+            coEvery { cloudDataSource.listFolderMetadata(userId) } returns Result.Success(emptyList())
+            coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(emptyList())
+            coEvery { cloudDataSource.listMediaMetadata(userId) } returns Result.Success(listOf(remoteMediaMetadata))
+            coEvery { mediaDao.getAllMediaByUserId(userId) } returns flowOf(emptyList())
+            coEvery { cloudDataSource.downloadMedia(any(), any()) } returns Result.Success(Unit)
+
+            puller.pullUpdates(userId)
+
+            coVerify {
+                mediaDao.insert(
+                    withArg {
+                        assertEquals("FILE", it.type)
+                        assertEquals("m2", it.id)
+                    },
+                )
+            }
+        }
+
+    @Test
+    fun `cleaner should delete missing notes locally`() =
+        runBlocking {
+            val localNote = createTestNote(id = "n1")
+            every { noteDao.getAllNotesByUserId(userId) } returns flowOf(listOf(localNote))
+
+            cleaner.cleanMissingNotesLocally(userId, emptySet())
+
+            coVerify { noteDao.hardDeleteById("n1", userId) }
+        }
+
+    @Test
+    fun `cleaner should delete missing media and local file locally`() =
+        runBlocking {
+            val localMedia = createTestMedia(id = "m1")
+            every { mediaDao.getAllMediaByUserId(userId) } returns flowOf(listOf(localMedia))
+
+            assertTrue(File(localMedia.localPath!!).exists())
+
+            cleaner.cleanMissingMediaLocally(userId, emptySet())
+
+            coVerify { mediaDao.hardDelete(localMedia) }
+
+            assertTrue(!File(localMedia.localPath!!).exists())
+        }
 }

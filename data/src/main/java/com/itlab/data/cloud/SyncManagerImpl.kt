@@ -1,8 +1,10 @@
 package com.itlab.data.cloud
 
+import com.itlab.data.dao.FolderDao
 import com.itlab.data.dao.MediaDao
 import com.itlab.data.dao.NoteDao
 import com.itlab.data.entity.MediaEntity
+import com.itlab.data.mapper.FolderEntityJsonConverter
 import com.itlab.data.mapper.NoteEntityJsonConverter
 import com.itlab.domain.cloud.CloudDataSource
 import com.itlab.domain.cloud.CloudMediaMetadata
@@ -20,12 +22,21 @@ import timber.log.Timber
 import java.io.File
 import java.io.IOException
 
+data class SyncDaoContainer(
+    val noteDao: NoteDao,
+    val folderDao: FolderDao,
+    val mediaDao: MediaDao,
+)
+
+data class SyncMappers(
+    val jsonConverterNote: NoteEntityJsonConverter,
+    val jsonConverterFolder: FolderEntityJsonConverter,
+)
+
 class SyncManagerImpl(
-    private val context: android.content.Context,
-    private val noteDao: NoteDao,
-    private val mediaDao: MediaDao,
-    private val cloudDataSource: CloudDataSource,
-    private val jsonConverter: NoteEntityJsonConverter,
+    private val pusher: SyncPusher,
+    private val puller: SyncPuller,
+    private val cleaner: SyncCleaner,
 ) : SyncManager {
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
     override val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
@@ -34,12 +45,10 @@ class SyncManagerImpl(
         _syncState.value = SyncState.Syncing
 
         try {
-            pushChanges(userId)
-            pullUpdates(userId)
+            pusher.pushChanges(userId)
+            puller.pullUpdates(userId)
 
             _syncState.value = SyncState.Success
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
@@ -62,59 +71,70 @@ class SyncManagerImpl(
         _syncState.value = SyncState.Error(e.message ?: "Unknown error")
     }
 
-    override suspend fun pushChanges(userId: String) {
-        val unsyncedEntities = noteDao.getUnsyncedNotes(userId)
-        val unsyncedMedia = mediaDao.getUnsyncedMedia(userId)
-
-        for (entity in unsyncedEntities) {
-            val json = with(jsonConverter) { entity.toJson() }
-
-            val result = cloudDataSource.uploadNote("users/$userId/notes/${entity.id}", json)
-
-            when (result) {
-                is Result.Success -> {
-                    val syncedEntity = entity.copy(isSynced = true)
-                    noteDao.update(syncedEntity)
-                }
-                is Result.Error -> {
-                    Timber.e(result.exception, "Couldn't upload the note ${entity.id}")
-                    throw result.exception
-                }
-            }
-        }
-
-        for (media in unsyncedMedia) {
-            val path = media.localPath ?: continue
-
-            val file = File(path)
-
-            if (file.exists()) {
-                val result =
-                    cloudDataSource.uploadMedia(
-                        key = "users/$userId/media/${media.noteId}_${media.id}",
-                        file = DomainFile(file.absolutePath), // ИЗМЕНЕНИЕ: Обернули в DomainFile
-                        mimeType = media.mimeType,
-                    )
-                if (result is Result.Success) {
-                    mediaDao.update(
-                        media.copy(isSynced = true, remoteUrl = "users/$userId/media/${media.noteId}_${media.id}"),
-                    )
-                }
-                if (result is Result.Error) {
-                    Timber.e(result.exception, "Couldn't upload the media ${media.id}")
-                    throw result.exception
-                }
-            }
-        }
-    }
+    override suspend fun pushChanges(userId: String) = pusher.pushChanges(userId)
 
     override suspend fun pullUpdates(userId: String) {
-        pullNotes(userId)
+        val (folders, notes, media) = puller.pullUpdates(userId)
+        cleaner.cleanMissingMediaLocally(userId, media)
+        cleaner.cleanMissingNotesLocally(userId, notes)
+        cleaner.cleanMissingFoldersLocally(userId, folders)
+    }
+}
 
-        pullMedia(userId)
+class SyncPuller(
+    private val daos: SyncDaoContainer,
+    private val mappers: SyncMappers,
+    private val cloudDataSource: CloudDataSource,
+    private val context: android.content.Context,
+) {
+    suspend fun pullUpdates(userId: String): Triple<Set<String>, Set<String>, Set<String>> {
+        val folders = pullFolders(userId)
+        val notes = pullNotes(userId)
+        val media = pullMedia(userId)
+        return Triple(folders, notes, media)
     }
 
-    private suspend fun pullNotes(userId: String) {
+    private suspend fun pullFolders(userId: String): Set<String> {
+        val metadataResult = cloudDataSource.listFolderMetadata(userId)
+        val remoteMetadata =
+            when (metadataResult) {
+                is Result.Success -> metadataResult.data
+                is Result.Error -> throw metadataResult.exception
+            }
+
+        val remoteIds = remoteMetadata.map { it.key.substringAfterLast('/') }.toSet()
+
+        val localFolders = daos.folderDao.getActiveFoldersByUserId(userId).first()
+        val localIds = localFolders.map { it.id }.toSet()
+
+        val toDownload =
+            remoteMetadata.filter { remoteMeta ->
+                val remoteFolderId = remoteMeta.key.substringAfterLast('/')
+                remoteFolderId !in localIds
+            }
+
+        for (meta in toDownload) {
+            val downloadResult = cloudDataSource.downloadFolder(meta.key)
+            when (downloadResult) {
+                is Result.Success -> {
+                    val folderEntity =
+                        mappers.jsonConverterFolder.toEntity(
+                            jsonString = downloadResult.data,
+                            userId = userId,
+                        )
+                    daos.folderDao.insert(folderEntity)
+                }
+                is Result.Error -> {
+                    Timber.e(downloadResult.exception, "Couldn't download folder ${meta.key}")
+                    throw downloadResult.exception
+                }
+            }
+        }
+
+        return remoteIds
+    }
+
+    private suspend fun pullNotes(userId: String): Set<String> {
         val metadataResult = cloudDataSource.listNoteMetadata(userId)
         val remoteMetadata =
             when (metadataResult) {
@@ -122,7 +142,9 @@ class SyncManagerImpl(
                 is Result.Error -> throw metadataResult.exception
             }
 
-        val localNotes = noteDao.getAllNotesByUserId(userId).first()
+        val remoteIds = remoteMetadata.map { it.key.substringAfterLast('/') }.toSet()
+
+        val localNotes = daos.noteDao.getAllNotesByUserId(userId).first()
         val localIds = localNotes.map { it.id }.toSet()
 
         val toDownload =
@@ -135,37 +157,41 @@ class SyncManagerImpl(
             val downloadResult = cloudDataSource.downloadNote(meta.key)
             if (downloadResult is Result.Success) {
                 val entity =
-                    jsonConverter.toEntity(
+                    mappers.jsonConverterNote.toEntity(
                         jsonString = downloadResult.data,
                         userId = userId,
                     )
-                noteDao.insert(entity)
+                daos.noteDao.insert(entity)
             } else if (downloadResult is Result.Error) {
                 Timber.e(downloadResult.exception, "Couldn't download note ${meta.key}")
                 throw downloadResult.exception
             }
         }
+
+        return remoteIds
     }
 
-    private suspend fun pullMedia(userId: String) {
+    private suspend fun pullMedia(userId: String): Set<String> {
         val mediaMetadataResult = cloudDataSource.listMediaMetadata(userId)
         if (mediaMetadataResult is Result.Error) throw mediaMetadataResult.exception
 
-        if (mediaMetadataResult is Result.Success) {
-            val remoteMedia = mediaMetadataResult.data
-            val localMedia = mediaDao.getAllMediaByUserId(userId).first()
-            val localMediaIds = localMedia.map { it.id }.toSet()
+        val remoteMedia = (mediaMetadataResult as Result.Success).data
+        val remoteMediaIds = remoteMedia.map { it.mediaId.substringAfter("_") }.toSet()
 
-            val toDownload =
-                remoteMedia.filter { meta ->
-                    val actualId = meta.mediaId.substringAfter("_")
-                    actualId !in localMediaIds
-                }
+        val localMedia = daos.mediaDao.getAllMediaByUserId(userId).first()
+        val localMediaIds = localMedia.map { it.id }.toSet()
 
-            for (mediaMeta in toDownload) {
-                processMediaDownload(mediaMeta)
+        val toDownload =
+            remoteMedia.filter { meta ->
+                val actualId = meta.mediaId.substringAfter("_")
+                actualId !in localMediaIds
             }
+
+        for (mediaMeta in toDownload) {
+            processMediaDownload(mediaMeta)
         }
+
+        return remoteMediaIds
     }
 
     private suspend fun processMediaDownload(mediaMeta: CloudMediaMetadata) {
@@ -179,7 +205,7 @@ class SyncManagerImpl(
 
         if (downloadResult is Result.Success) {
             val cloudMimeType = mediaMeta.mimeType
-            mediaDao.insert(
+            daos.mediaDao.insert(
                 MediaEntity(
                     id = actualMediaId,
                     noteId = noteIdFromCloud,
@@ -190,6 +216,171 @@ class SyncManagerImpl(
                     type = if (cloudMimeType.startsWith("image/")) "IMAGE" else "FILE",
                 ),
             )
+        }
+    }
+}
+
+class SyncPusher(
+    private val daos: SyncDaoContainer,
+    private val mappers: SyncMappers,
+    private val cloudDataSource: CloudDataSource,
+) {
+    suspend fun pushChanges(userId: String) {
+        pushFolders(userId)
+        pushNotes(userId)
+        pushMedia(userId)
+    }
+
+    private suspend fun pushFolders(userId: String) {
+        val unsyncedFolders = daos.folderDao.getUnsyncedFolders(userId)
+
+        for (folder in unsyncedFolders) {
+            val cloudKey = "users/$userId/folders/${folder.id}"
+
+            if (folder.isDeleted) {
+                val result = cloudDataSource.deleteObject(cloudKey)
+                when (result) {
+                    is Result.Success -> {
+                        daos.folderDao.hardDeleteById(folder.id, userId)
+                    }
+                    is Result.Error -> {
+                        Timber.e(result.exception, "Failed to delete remote folder ${folder.id}")
+                        throw result.exception
+                    }
+                }
+            } else {
+                val folderJson = with(mappers.jsonConverterFolder) { folder.toJson() }
+
+                val result = cloudDataSource.uploadFolder(cloudKey, folderJson)
+                when (result) {
+                    is Result.Success -> {
+                        daos.folderDao.update(folder.copy(isSynced = true))
+                    }
+                    is Result.Error -> {
+                        Timber.e(result.exception, "Failed to upload folder ${folder.id}")
+                        throw result.exception
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun pushNotes(userId: String) {
+        val unsyncedNotes = daos.noteDao.getUnsyncedNotes(userId)
+        for (entity in unsyncedNotes) {
+            val cloudKey = "users/$userId/notes/${entity.id}"
+            val json = with(mappers.jsonConverterNote) { entity.toJson() }
+            val result = cloudDataSource.uploadNote(cloudKey, json)
+
+            if (result is Result.Success) {
+                daos.noteDao.update(entity.copy(isSynced = true))
+            } else if (result is Result.Error) {
+                Timber.e(result.exception, "Couldn't upload note ${entity.id}")
+                throw result.exception
+            }
+        }
+
+        val deletedNotes = daos.noteDao.getDeletedNotes(userId)
+        for (entity in deletedNotes) {
+            val cloudKey = "users/$userId/notes/${entity.id}"
+            val result = cloudDataSource.deleteObject(cloudKey)
+
+            if (result is Result.Success) {
+                daos.noteDao.hardDeleteById(id = entity.id, userId = userId)
+            } else if (result is Result.Error) {
+                Timber.e(result.exception, "Failed to delete remote note ${entity.id}")
+                throw result.exception
+            }
+        }
+    }
+
+    private suspend fun pushMedia(userId: String) {
+        val unsyncedMedia = daos.mediaDao.getUnsyncedMedia(userId)
+        for (media in unsyncedMedia) {
+            val cloudKey = "users/$userId/media/${media.noteId}_${media.id}"
+            val path = media.localPath ?: continue
+            val file = File(path)
+
+            if (file.exists()) {
+                val result =
+                    cloudDataSource.uploadMedia(
+                        key = cloudKey,
+                        file = DomainFile(file.absolutePath),
+                        mimeType = media.mimeType,
+                    )
+                if (result is Result.Success) {
+                    daos.mediaDao.update(media.copy(isSynced = true, remoteUrl = cloudKey))
+                } else if (result is Result.Error) {
+                    Timber.e(result.exception, "Couldn't upload media ${media.id}")
+                    throw result.exception
+                }
+            }
+        }
+
+        val deletedMedia = daos.mediaDao.getDeletedMediaToSync(userId)
+        for (media in deletedMedia) {
+            val cloudKey = "users/$userId/media/${media.noteId}_${media.id}"
+            val result = cloudDataSource.deleteObject(cloudKey)
+
+            if (result is Result.Success) {
+                media.localPath?.let { File(it).delete() }
+                daos.mediaDao.hardDelete(media)
+            } else if (result is Result.Error) {
+                Timber.e(result.exception, "Failed to delete remote media ${media.id}")
+                throw result.exception
+            }
+        }
+    }
+}
+
+class SyncCleaner(
+    private val folderDao: FolderDao,
+    private val noteDao: NoteDao,
+    private val mediaDao: MediaDao,
+) {
+    suspend fun cleanMissingFoldersLocally(
+        userId: String,
+        remoteIds: Set<String>,
+    ) {
+        val localIds =
+            folderDao
+                .getActiveFoldersByUserId(userId)
+                .first()
+                .map { it.id }
+                .toSet()
+        val toDeleteLocally = localIds - remoteIds
+        for (folderId in toDeleteLocally) {
+            folderDao.hardDeleteById(folderId, userId)
+        }
+    }
+
+    suspend fun cleanMissingNotesLocally(
+        userId: String,
+        remoteIds: Set<String>,
+    ) {
+        val localIds =
+            noteDao
+                .getAllNotesByUserId(userId)
+                .first()
+                .map { it.id }
+                .toSet()
+        val toDeleteLocally = localIds - remoteIds
+        for (noteId in toDeleteLocally) {
+            noteDao.hardDeleteById(id = noteId, userId = userId)
+        }
+    }
+
+    suspend fun cleanMissingMediaLocally(
+        userId: String,
+        remoteMediaIds: Set<String>,
+    ) {
+        val localMedia = mediaDao.getAllMediaByUserId(userId).first()
+        val localMediaIds = localMedia.map { it.id }.toSet()
+        val toDeleteLocally = localMediaIds - remoteMediaIds
+        for (mediaId in toDeleteLocally) {
+            val mediaEntity = localMedia.find { it.id == mediaId }
+            mediaEntity?.localPath?.let { path -> File(path).delete() }
+            mediaEntity?.let { mediaDao.hardDelete(it) }
         }
     }
 }
