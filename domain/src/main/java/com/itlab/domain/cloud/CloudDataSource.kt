@@ -18,9 +18,18 @@ sealed interface Result<out T> {
 }
 
 interface CloudDataSource {
-    suspend fun listNoteMetadata(userId: String): Result<List<CloudNoteMetadata>>
+    suspend fun listNoteMetadata(userId: String): Result<List<CloudMetadata>>
 
     suspend fun listMediaMetadata(userId: String): Result<List<CloudMediaMetadata>>
+
+    suspend fun listFolderMetadata(userId: String): Result<List<CloudMetadata>>
+
+    suspend fun downloadFolder(key: String): Result<String>
+
+    suspend fun uploadFolder(
+        key: String,
+        json: String,
+    ): Result<Unit>
 
     suspend fun downloadNote(key: String): Result<String>
 
@@ -28,8 +37,6 @@ interface CloudDataSource {
         key: String,
         json: String,
     ): Result<Unit>
-
-    suspend fun deleteNote(key: String): Result<Unit>
 
     suspend fun uploadMedia(
         key: String,
@@ -42,10 +49,10 @@ interface CloudDataSource {
         destination: DomainFile,
     ): Result<Unit>
 
-    suspend fun deleteMedia(key: String): Result<Unit>
+    suspend fun deleteObject(key: String): Result<Unit>
 }
 
-data class CloudNoteMetadata(
+data class CloudMetadata(
     val key: String,
     val updatedAt: Instant,
 )

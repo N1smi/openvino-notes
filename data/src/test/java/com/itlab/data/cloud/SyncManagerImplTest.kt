@@ -7,7 +7,7 @@ import com.itlab.data.entity.MediaEntity
 import com.itlab.data.entity.NoteEntity
 import com.itlab.data.mapper.NoteEntityJsonConverter
 import com.itlab.domain.cloud.CloudDataSource
-import com.itlab.domain.cloud.CloudNoteMetadata
+import com.itlab.domain.cloud.CloudMetadata
 import com.itlab.domain.cloud.DomainFile
 import com.itlab.domain.cloud.Result
 import com.itlab.domain.cloud.SyncState
@@ -147,7 +147,7 @@ class SyncManagerImplTest {
     @Test
     fun `pullUpdates should throw and log when downloadNote fails`() =
         runBlocking {
-            val meta = CloudNoteMetadata("note1", now)
+            val meta = CloudMetadata("note1", now)
             val exception = Exception("Download Failed")
 
             coEvery { cloudDataSource.listNoteMetadata(any()) } returns Result.Success(listOf(meta))
@@ -190,7 +190,7 @@ class SyncManagerImplTest {
             coEvery { cloudDataSource.uploadNote(expectedLocalPath, any()) } returns Result.Success(Unit)
             coEvery { noteDao.update(any()) } just Runs
 
-            val cloudMeta = CloudNoteMetadata(key = expectedRemotePath, updatedAt = now)
+            val cloudMeta = CloudMetadata(key = expectedRemotePath, updatedAt = now)
             coEvery { cloudDataSource.listNoteMetadata(userId) } returns Result.Success(listOf(cloudMeta))
 
             val localNote = createTestNote(localNoteId).copy(userId = userId, isSynced = true)
@@ -280,7 +280,7 @@ class SyncManagerImplTest {
 
             val remoteMetadata =
                 listOf(
-                    CloudNoteMetadata(
+                    CloudMetadata(
                         key = "users/$userId/notes/$existingNoteId",
                         updatedAt = Instant.fromEpochMilliseconds(1716037200000L),
                     ),
@@ -305,7 +305,7 @@ class SyncManagerImplTest {
 
             every { noteDao.getAllNotesByUserId(currentUserId) } returns flowOf(emptyList())
 
-            val cloudMeta = CloudNoteMetadata(key = remoteKey, updatedAt = now)
+            val cloudMeta = CloudMetadata(key = remoteKey, updatedAt = now)
             coEvery { cloudDataSource.listNoteMetadata(currentUserId) } returns Result.Success(listOf(cloudMeta))
 
             val remoteJson = "{\"id\":\"$duplicateNoteId\"}"

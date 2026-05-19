@@ -6,7 +6,7 @@ import com.itlab.data.entity.MediaEntity
 import com.itlab.data.mapper.NoteEntityJsonConverter
 import com.itlab.domain.cloud.CloudDataSource
 import com.itlab.domain.cloud.CloudMediaMetadata
-import com.itlab.domain.cloud.DomainFile // ДОБАВИЛИ ИМПОРТ
+import com.itlab.domain.cloud.DomainFile
 import com.itlab.domain.cloud.Result
 import com.itlab.domain.cloud.SyncManager
 import com.itlab.domain.cloud.SyncState

@@ -136,7 +136,7 @@ class FirebaseCloudDataSourceTest {
         runBlocking {
             val task = mockk<UploadTask>()
             every { rootRef.child(any()) } returns childRef
-            every { childRef.putBytes(any()) } returns task
+            every { childRef.putBytes(any(), any()) } returns task
             coEvery { task.await() } returns mockk()
 
             val result = dataSource.uploadNote("key", "{}")
@@ -145,14 +145,14 @@ class FirebaseCloudDataSourceTest {
         }
 
     @Test
-    fun `deleteNote success`() =
+    fun `delete success`() =
         runBlocking {
             val task = mockk<Task<Void>>()
             every { rootRef.child(any()) } returns childRef
             every { childRef.delete() } returns task
             coEvery { task.await() } returns mockk()
 
-            val result = dataSource.deleteNote("key")
+            val result = dataSource.deleteObject("key")
 
             assertTrue(result is Result.Success)
         }
@@ -207,7 +207,7 @@ class FirebaseCloudDataSourceTest {
             val exception = mockk<FirebaseException>()
             every { rootRef.child(any()) } throws exception
 
-            val result = dataSource.deleteNote("key")
+            val result = dataSource.deleteObject("key")
 
             assertTrue(result is Result.Error)
             assertEquals(exception, (result as Result.Error).exception)
@@ -219,7 +219,7 @@ class FirebaseCloudDataSourceTest {
             val exception = IOException("Disk error")
             every { rootRef.child(any()) } throws exception
 
-            val result = dataSource.deleteNote("key")
+            val result = dataSource.deleteObject("key")
 
             assertTrue(result is Result.Error)
         }
@@ -229,7 +229,7 @@ class FirebaseCloudDataSourceTest {
         runBlocking {
             every { rootRef.child(any()) } throws RuntimeException("Boom")
 
-            val result = dataSource.deleteNote("key")
+            val result = dataSource.deleteObject("key")
 
             assertTrue(result is Result.Error)
         }
@@ -238,7 +238,7 @@ class FirebaseCloudDataSourceTest {
     fun `safeCall rethrows CancellationException`() {
         runBlocking {
             every { rootRef.child(any()) } throws CancellationException("Cancelled")
-            dataSource.deleteNote("key")
+            dataSource.deleteObject("key")
         }
     }
 
@@ -253,7 +253,7 @@ class FirebaseCloudDataSourceTest {
 
             coEvery { task.await() } returns mockk()
 
-            val result = dataSource.deleteMedia(key)
+            val result = dataSource.deleteObject(key)
 
             assertTrue(result is Result.Success)
             verify { childRef.delete() }
@@ -268,7 +268,100 @@ class FirebaseCloudDataSourceTest {
             every { rootRef.child(key) } returns childRef
             every { childRef.delete() } throws exception
 
-            val result = dataSource.deleteMedia(key)
+            val result = dataSource.deleteObject(key)
+
+            assertTrue(result is Result.Error)
+            assertEquals(exception, (result as Result.Error).exception)
+        }
+
+    @Test
+    fun `listFolderMetadata success`() =
+        runBlocking {
+            val userId = "user123"
+            val listResult = mockk<ListResult>()
+            val itemRef = mockk<StorageReference>()
+            val metadata = mockk<StorageMetadata>()
+            val taskList = mockk<Task<ListResult>>()
+            val taskMetadata = mockk<Task<StorageMetadata>>()
+
+            every { rootRef.child("users/$userId/folders") } returns childRef
+            every { childRef.listAll() } returns taskList
+
+            coEvery { taskList.await() } returns listResult
+            every { listResult.items } returns listOf(itemRef)
+            every { itemRef.path } returns "users/$userId/folders/folder1.json"
+            every { itemRef.metadata } returns taskMetadata
+            coEvery { taskMetadata.await() } returns metadata
+            every { metadata.updatedTimeMillis } returns 1672531200000L
+
+            val result = dataSource.listFolderMetadata(userId)
+
+            assertTrue(result is Result.Success)
+            val data = (result as Result.Success).data
+            assertEquals(1, data.size)
+            assertEquals("users/$userId/folders/folder1.json", data[0].key)
+        }
+
+    @Test
+    fun `downloadFolder success`() =
+        runBlocking {
+            val key = "users/user123/folders/folder1.json"
+            val bytes = "{\"id\":\"1\",\"name\":\"Work\"}".toByteArray()
+            val task = mockk<Task<ByteArray>>()
+
+            every { rootRef.child(key) } returns childRef
+            every { childRef.getBytes(any()) } returns task
+            coEvery { task.await() } returns bytes
+
+            val result = dataSource.downloadFolder(key)
+
+            assertTrue(result is Result.Success)
+            assertEquals("{\"id\":\"1\",\"name\":\"Work\"}", (result as Result.Success).data)
+        }
+
+    @Test
+    fun `uploadFolder success`() =
+        runBlocking {
+            val key = "users/user123/folders/folder1.json"
+            val json = "{\"id\":\"1\",\"name\":\"Work\"}"
+            val task = mockk<UploadTask>()
+
+            every { rootRef.child(key) } returns childRef
+            every { childRef.putBytes(any(), any()) } returns task
+            coEvery { task.await() } returns mockk()
+
+            val result = dataSource.uploadFolder(key, json)
+
+            assertTrue(result is Result.Success)
+            verify { childRef.putBytes(any(), any()) }
+        }
+
+    @Test
+    fun `deleteFolder success`() =
+        runBlocking {
+            val key = "users/user123/folders/folder1.json"
+            val task = mockk<Task<Void>>()
+
+            every { rootRef.child(key) } returns childRef
+            every { childRef.delete() } returns task
+            coEvery { task.await() } returns mockk()
+
+            val result = dataSource.deleteObject(key)
+
+            assertTrue(result is Result.Success)
+            verify { childRef.delete() }
+        }
+
+    @Test
+    fun `deleteFolder failure`() =
+        runBlocking {
+            val key = "users/user123/folders/folder1.json"
+            val exception = RuntimeException("Firebase storage error")
+
+            every { rootRef.child(key) } returns childRef
+            every { childRef.delete() } throws exception
+
+            val result = dataSource.deleteObject(key)
 
             assertTrue(result is Result.Error)
             assertEquals(exception, (result as Result.Error).exception)

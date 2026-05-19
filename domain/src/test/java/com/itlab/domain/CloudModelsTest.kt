@@ -1,6 +1,6 @@
 package com.itlab.domain
 
-import com.itlab.domain.cloud.CloudNoteMetadata
+import com.itlab.domain.cloud.CloudMetadata
 import com.itlab.domain.cloud.Result
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -12,7 +12,7 @@ class CloudModelsTest {
         val now = Instant.fromEpochMilliseconds(System.currentTimeMillis())
         val key = "notes/user1/note_123.json"
 
-        val metadata = CloudNoteMetadata(key = key, updatedAt = now)
+        val metadata = CloudMetadata(key = key, updatedAt = now)
 
         assertEquals(key, metadata.key)
         assertEquals(now, metadata.updatedAt)

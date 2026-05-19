@@ -1,73 +1,61 @@
 package com.itlab.data.cloud
 
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageReference
 import com.itlab.domain.cloud.CloudDataSource
 import com.itlab.domain.cloud.CloudMediaMetadata
-import com.itlab.domain.cloud.CloudNoteMetadata
+import com.itlab.domain.cloud.CloudMetadata
 import com.itlab.domain.cloud.DomainFile
 import com.itlab.domain.cloud.Result
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 import java.io.File
 import kotlin.time.Instant
+
+private const val MAX_NOTE_SIZE = 5 * 1024 * 1024L
 
 class FirebaseCloudDataSource(
     private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
 ) : CloudDataSource {
     private val rootRef = storage.reference
 
-    override suspend fun listNoteMetadata(userId: String): Result<List<CloudNoteMetadata>> =
-        safeCall {
-            val listRef = rootRef.child("users/$userId/notes")
-            val result = listRef.listAll().await()
+    private val noteDispatcher = FirebaseNoteDispatcher(rootRef)
+    private val folderDispatcher = FirebaseFolderDispatcher(rootRef)
+    private val mediaDispatcher = FirebaseMediaDispatcher(rootRef)
 
-            val metadataList =
-                result.items.map { itemRef ->
-                    val metadata = itemRef.metadata.await()
-                    CloudNoteMetadata(
-                        key = itemRef.path,
-                        updatedAt = Instant.fromEpochMilliseconds(metadata.updatedTimeMillis),
-                    )
-                }
-            metadataList
+    override suspend fun listNoteMetadata(userId: String): Result<List<CloudMetadata>> =
+        safeCall {
+            noteDispatcher.list(userId)
         }
 
-    override suspend fun listMediaMetadata(userId: String): Result<List<CloudMediaMetadata>> =
-        safeCall {
-            val mediaRef = rootRef.child("users/$userId/media")
-            val result = mediaRef.listAll().await()
-
-            result.items.map { itemRef ->
-                val metadata = itemRef.metadata.await()
-                CloudMediaMetadata(
-                    key = itemRef.path,
-                    mediaId = itemRef.name,
-                    mimeType = metadata.contentType ?: "application/octet-stream",
-                )
-            }
-        }
-
-    override suspend fun downloadNote(key: String): Result<String> =
-        safeCall {
-            val fileRef = rootRef.child(key)
-            val bytes = fileRef.getBytes(MAX_NOTE_SIZE).await()
-            String(bytes)
-        }
+    override suspend fun downloadNote(key: String): Result<String> = safeCall { noteDispatcher.download(key) }
 
     override suspend fun uploadNote(
         key: String,
         json: String,
-    ): Result<Unit> =
+    ): Result<Unit> = safeCall { noteDispatcher.upload(key, json) }
+
+    override suspend fun listFolderMetadata(userId: String): Result<List<CloudMetadata>> =
         safeCall {
-            val fileRef = rootRef.child(key)
-            fileRef.putBytes(json.toByteArray()).await()
-            Unit
+            folderDispatcher.list(userId)
         }
 
-    override suspend fun deleteNote(key: String): Result<Unit> =
+    override suspend fun downloadFolder(key: String): Result<String> = safeCall { folderDispatcher.download(key) }
+
+    override suspend fun uploadFolder(
+        key: String,
+        json: String,
+    ): Result<Unit> =
         safeCall {
-            rootRef.child(key).delete().await()
-            Unit
+            folderDispatcher.upload(key, json)
+        }
+
+    override suspend fun listMediaMetadata(userId: String): Result<List<CloudMediaMetadata>> =
+        safeCall {
+            mediaDispatcher.list(userId)
         }
 
     override suspend fun uploadMedia(
@@ -76,16 +64,7 @@ class FirebaseCloudDataSource(
         mimeType: String,
     ): Result<Unit> =
         safeCall {
-            val javaFile = java.io.File(file.path)
-            val fileRef = rootRef.child(key)
-            val metadata =
-                com.google.firebase.storage.storageMetadata {
-                    contentType = mimeType
-                }
-            javaFile.inputStream().use { stream ->
-                fileRef.putStream(stream, metadata).await()
-            }
-            Unit
+            mediaDispatcher.upload(key, file, mimeType)
         }
 
     override suspend fun downloadMedia(
@@ -93,33 +72,136 @@ class FirebaseCloudDataSource(
         destination: DomainFile,
     ): Result<Unit> =
         safeCall {
-            val javaFile = java.io.File(destination.path)
-            val fileRef = rootRef.child(key)
-            fileRef.getFile(javaFile).await()
-            Unit
+            mediaDispatcher.download(key, destination)
         }
 
-    override suspend fun deleteMedia(key: String): Result<Unit> =
-        safeCall {
-            rootRef.child(key).delete().await()
-            Unit
+    override suspend fun deleteObject(key: String): Result<Unit> = safeCall { deleteRemoteFile(rootRef, key) }
+
+    private class FirebaseNoteDispatcher(
+        private val rootRef: StorageReference,
+    ) {
+        suspend fun list(userId: String): List<CloudMetadata> = listMetadataHelper(rootRef, "users/$userId/notes")
+
+        suspend fun download(key: String): String = downloadJsonHelper(rootRef, key)
+
+        suspend fun upload(
+            key: String,
+            json: String,
+        ) = uploadJsonHelper(rootRef, key, json)
+    }
+
+    private class FirebaseFolderDispatcher(
+        private val rootRef: StorageReference,
+    ) {
+        suspend fun list(userId: String): List<CloudMetadata> = listMetadataHelper(rootRef, "users/$userId/folders")
+
+        suspend fun download(key: String): String = downloadJsonHelper(rootRef, key)
+
+        suspend fun upload(
+            key: String,
+            json: String,
+        ) = uploadJsonHelper(rootRef, key, json)
+    }
+
+    private class FirebaseMediaDispatcher(
+        private val rootRef: StorageReference,
+    ) {
+        suspend fun list(userId: String): List<CloudMediaMetadata> {
+            val mediaRef = rootRef.child("users/$userId/media")
+            val result = mediaRef.listAll().await()
+            return coroutineScope {
+                result.items
+                    .map { itemRef ->
+                        async {
+                            val metadata = itemRef.metadata.await()
+                            CloudMediaMetadata(
+                                key = itemRef.path,
+                                mediaId = itemRef.name,
+                                mimeType = metadata.contentType ?: "application/octet-stream",
+                            )
+                        }
+                    }.awaitAll()
+            }
         }
 
-    @Suppress("TooGenericExceptionCaught")
-    private suspend inline fun <T> safeCall(crossinline block: suspend () -> T): Result<T> =
-        try {
-            Result.Success(block())
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: com.google.firebase.FirebaseException) {
-            Result.Error(e)
-        } catch (e: java.io.IOException) {
-            Result.Error(e)
-        } catch (e: Exception) {
-            Result.Error(e)
+        suspend fun upload(
+            key: String,
+            file: DomainFile,
+            mimeType: String,
+        ) {
+            val metadata =
+                com.google.firebase.storage
+                    .storageMetadata { contentType = mimeType }
+            File(file.path).inputStream().use { stream ->
+                rootRef.child(key).putStream(stream, metadata).await()
+            }
         }
 
-    companion object {
-        private const val MAX_NOTE_SIZE = 5 * 1024 * 1024L // 5MB
+        suspend fun download(
+            key: String,
+            destination: DomainFile,
+        ) {
+            rootRef.child(key).getFile(File(destination.path)).await()
+        }
     }
 }
+
+internal suspend fun listMetadataHelper(
+    rootRef: StorageReference,
+    path: String,
+): List<CloudMetadata> {
+    val listRef = rootRef.child(path)
+    val result = listRef.listAll().await()
+    return coroutineScope {
+        result.items
+            .map { itemRef ->
+                async {
+                    val metadata = itemRef.metadata.await()
+                    CloudMetadata(
+                        key = itemRef.path,
+                        updatedAt = Instant.fromEpochMilliseconds(metadata.updatedTimeMillis),
+                    )
+                }
+            }.awaitAll()
+    }
+}
+
+internal suspend fun downloadJsonHelper(
+    rootRef: StorageReference,
+    key: String,
+): String {
+    val bytes = rootRef.child(key).getBytes(MAX_NOTE_SIZE).await()
+    return String(bytes)
+}
+
+internal suspend fun uploadJsonHelper(
+    rootRef: StorageReference,
+    key: String,
+    json: String,
+) {
+    val metadata =
+        com.google.firebase.storage
+            .storageMetadata { contentType = "application/json" }
+    rootRef.child(key).putBytes(json.toByteArray(), metadata).await()
+}
+
+internal suspend fun deleteRemoteFile(
+    rootRef: StorageReference,
+    key: String,
+) {
+    rootRef.child(key).delete().await()
+}
+
+@Suppress("TooGenericExceptionCaught")
+internal suspend inline fun <T> safeCall(crossinline block: suspend () -> T): Result<T> =
+    try {
+        Result.Success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: com.google.firebase.FirebaseException) {
+        Result.Error(e)
+    } catch (e: java.io.IOException) {
+        Result.Error(e)
+    } catch (e: Exception) {
+        Result.Error(e)
+    }
